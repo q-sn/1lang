@@ -164,7 +164,7 @@ unsafe fn range_rects(range: &IUIAutomationTextRange) -> Vec<Rect> {
         let mut data: *mut core::ffi::c_void = std::ptr::null_mut();
         if SafeArrayAccessData(sa, &mut data).is_ok() && !data.is_null() {
             let values = std::slice::from_raw_parts(data as *const f64, count);
-            for chunk in values.chunks_exact(4) {
+            for chunk in values.as_chunks::<4>().0 {
                 let r = Rect { x: chunk[0], y: chunk[1], width: chunk[2], height: chunk[3] };
                 if !r.is_empty() {
                     result.push(r);

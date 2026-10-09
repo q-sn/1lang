@@ -133,7 +133,7 @@ pub fn read_text() -> Result<Option<String>> {
     unsafe {
         let Ok(h) = GetClipboardData(CF_UNICODETEXT.0 as u32) else { return Ok(None) };
         let Some(bytes) = read_hglobal(h) else { return Ok(None) };
-        let wide: Vec<u16> = bytes.chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect();
+        let wide: Vec<u16> = bytes.as_chunks::<2>().0.iter().map(|c| u16::from_le_bytes(*c)).collect();
         let end = wide.iter().position(|&c| c == 0).unwrap_or(wide.len());
         Ok(Some(String::from_utf16_lossy(&wide[..end])))
     }

@@ -21,7 +21,7 @@ pub fn available_languages() -> Result<Vec<String>> {
 
 fn to_bitmap(img: &RgbaImage) -> Result<SoftwareBitmap> {
     let mut bgra = img.as_raw().clone();
-    for px in bgra.chunks_exact_mut(4) {
+    for px in bgra.as_chunks_mut::<4>().0 {
         px.swap(0, 2);
     }
     let writer = DataWriter::new()?;
