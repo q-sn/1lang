@@ -3261,7 +3261,7 @@ checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
 
 [[package]]
 name = "onelang"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "env_logger",
  "image",
@@ -3289,7 +3289,7 @@ dependencies = [
 
 [[package]]
 name = "onelang-core"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "async-trait",
  "futures-util",
@@ -3305,7 +3305,7 @@ dependencies = [
 
 [[package]]
 name = "onelang-platform"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "image",
  "log",
