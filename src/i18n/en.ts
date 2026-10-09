@@ -37,7 +37,6 @@ export default {
   },
   translate: {
     placeholder: 'Type or paste text',
-    hint: 'Ctrl+Enter — translate now',
     empty: 'Translation',
     chars: '{n} characters',
     provider: 'Provider',

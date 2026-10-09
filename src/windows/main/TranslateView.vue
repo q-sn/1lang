@@ -151,7 +151,7 @@ onMounted(() => {
             <Volume2 class="size-5" />
           </Button>
         </Tip>
-        <span class="ml-2 text-[13px] text-faint">{{ source ? t('translate.chars', { n: source.length }) : t('translate.hint') }}</span>
+        <span v-if="source" class="ml-2 text-[13px] text-faint">{{ t('translate.chars', { n: source.length }) }}</span>
         <div class="flex-1" />
         <Tip v-if="source" :text="t('common.clear')">
           <Button variant="ghost" size="icon" @click="clear"><X class="size-5" /></Button>

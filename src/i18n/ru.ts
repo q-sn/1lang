@@ -39,7 +39,6 @@ const ru: typeof en = {
   },
   translate: {
     placeholder: 'Введите или вставьте текст',
-    hint: 'Ctrl+Enter — перевести сразу',
     empty: 'Перевод',
     chars: 'Символов: {n}',
     provider: 'Провайдер',

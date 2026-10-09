@@ -39,7 +39,6 @@ const es: typeof en = {
   },
   translate: {
     placeholder: 'Escribe o pega un texto',
-    hint: 'Ctrl+Enter — traducir ahora',
     empty: 'Traducción',
     chars: '{n} caracteres',
     provider: 'Proveedor',
