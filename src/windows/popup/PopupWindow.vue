@@ -25,7 +25,7 @@ import {
 import { useI18n } from 'vue-i18n';
 import { commands, events, type PopupPayload } from '@/lib/api';
 import { useLanguages } from '@/lib/langs';
-import { formatCost, speak, useTranslator } from '@/lib/translator';
+import { speak, useTranslator } from '@/lib/translator';
 import { useSettings } from '@/lib/settings';
 import Button from '@/ui/Button.vue';
 import DictionaryCard from '@/ui/DictionaryCard.vue';
@@ -127,13 +127,6 @@ const notice = computed(() => {
   return n;
 });
 
-const meta = computed(() => {
-  const r = state.result;
-  if (!r) return state.providerName ?? '';
-  if (r.cached) return `${r.provider_name} · ${t('translate.cached')}`;
-  const cost = r.cost_usd ? ` · ${formatCost(r.cost_usd)}` : '';
-  return `${r.provider_name} · ${t('common.ms', { n: r.elapsed_ms })}${cost}`;
-});
 const busy = computed(() => state.status === 'loading' || state.status === 'streaming');
 
 onMounted(async () => {
@@ -275,7 +268,7 @@ onMounted(async () => {
             <Maximize2 class="size-5" />
             {{ t('popup.open') }}
           </Button>
-          <span class="pointer-events-none min-w-0 flex-1 truncate text-center text-[12.5px] text-faint">{{ meta }}</span>
+          <span class="min-w-0 flex-1" />
           <Button
             v-if="payload?.can_replace"
             variant="primary"
