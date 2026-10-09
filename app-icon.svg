@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- Dark tile filling the canvas (like other taskbar icons) with a large white "1." -->
+  <rect x="16" y="16" width="992" height="992" rx="224" fill="#202126"/>
+  <rect x="22" y="22" width="980" height="980" rx="218" fill="none" stroke="#ffffff" stroke-opacity="0.08" stroke-width="12"/>
+  <path d="M373 190 H543 V834 H373 V360 L253 412 V290 Z" fill="#ffffff"/>
+  <circle cx="693" cy="756" r="80" fill="#ffffff"/>
+</svg>

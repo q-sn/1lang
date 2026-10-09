@@ -1,0 +1,237 @@
+@import '@fontsource-variable/onest';
+@import 'tailwindcss';
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+ * 1lang design tokens: neutral greys + one solid accent. Surfaces are
+ * translucent layers on top of the native glass (Mica / Acrylic); without
+ * glass the body gets a solid background instead.
+ */
+:root {
+  /* Palette in the spirit of JetBrains New UI: neutral greys, a calm blue for
+     primary actions and a muted blue for selection (text on it stays normal). */
+  --accent: #3574f0;
+  --accent-strong: #2f63d6;
+  --accent-soft: #d4e2ff;
+  --on-accent: #ffffff;
+
+  --text: #1e1f22;
+  --text-muted: #6c707e;
+  --text-faint: #a8adbd;
+
+  --bg-solid: #f7f8fa;
+  --surface: #ffffff;
+  --surface-strong: #ffffff;
+  --surface-hover: #ebecf0;
+  --surface-active: #dfe1e5;
+  /* Selected item in navigation lists. */
+  --nav-selected: #e1e4eb;
+  --border: #ebecf0;
+  --border-strong: #dfe1e5;
+  --shadow: none;
+  --shadow-sm: none;
+  --danger: #e55765;
+  --success: #208a3c;
+  --warning: #c27d04;
+
+  --text-size: 17px;
+  color-scheme: light;
+}
+
+.dark {
+  --accent: #3574f0;
+  --accent-strong: #4682fa;
+  --accent-soft: #2e436e;
+  --on-accent: #ffffff;
+
+  --text: #dfe1e5;
+  --text-muted: #9da0a8;
+  --text-faint: #6f737a;
+
+  --bg-solid: #191a1c;
+  --surface: #1e1f22;
+  --surface-strong: #2b2d30;
+  --surface-hover: #2b2d30;
+  --surface-active: #393b40;
+  --nav-selected: #2b2d30;
+  --border: #2b2d30;
+  --border-strong: #393b40;
+  --shadow: none;
+  --shadow-sm: none;
+  --danger: #f75464;
+  --success: #5fb865;
+  --warning: #e0a62e;
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-accent: var(--accent);
+  --color-accent-strong: var(--accent-strong);
+  --color-accent-soft: var(--accent-soft);
+  --color-on-accent: var(--on-accent);
+  --color-fg: var(--text);
+  --color-muted: var(--text-muted);
+  --color-faint: var(--text-faint);
+  --color-surface: var(--surface);
+  --color-surface-strong: var(--surface-strong);
+  --color-hover: var(--surface-hover);
+  --color-active: var(--surface-active);
+  --color-nav-selected: var(--nav-selected);
+  --color-line: var(--border);
+  --color-line-strong: var(--border-strong);
+  --color-danger: var(--danger);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --font-sans: 'Onest Variable', 'Segoe UI', system-ui, sans-serif;
+  --font-display: 'Onest Variable', 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'Cascadia Code', 'JetBrains Mono', Consolas, monospace;
+  --shadow-glass: var(--shadow);
+  --shadow-soft: var(--shadow-sm);
+  --animate-fade-in: fade-in 160ms ease-out;
+  --animate-pop-in: pop-in 180ms cubic-bezier(0.2, 0.9, 0.3, 1.15);
+  --animate-blink: blink 1s steps(2) infinite;
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes pop-in {
+  from { opacity: 0; transform: scale(0.95) translateY(-3px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes blink {
+  0% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+html {
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 1.45;
+  color: var(--text);
+  background: transparent;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  cursor: default;
+}
+
+/*
+ * A barely visible fill keeps every pixel hit-testable: on transparent
+ * windows fully transparent pixels would let clicks (and window dragging)
+ * fall through to whatever is behind.
+ */
+body {
+  background: rgb(128 128 128 / 0.01);
+}
+
+html:not(.glass):not(.bare) body {
+  background: var(--bg-solid);
+}
+
+html.bare body {
+  background: transparent;
+}
+
+::selection {
+  background: color-mix(in oklab, var(--accent) 30%, transparent);
+}
+
+/* Everything clickable shows a pointer (Tailwind's preflight resets it to default). */
+button,
+a,
+summary,
+[role='button'],
+[role='menuitem'],
+[role='menuitemcheckbox'],
+[role='option'],
+[role='radio'],
+[role='switch'],
+[role='tab'],
+button[role='combobox'] {
+  cursor: pointer;
+}
+button:disabled,
+[aria-disabled='true'],
+[data-disabled] {
+  cursor: default;
+}
+
+textarea,
+input,
+.selectable {
+  user-select: text;
+  cursor: text;
+}
+
+::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 12px;
+  border: 4px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--text-faint);
+}
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* No focus rings: focus is shown by the control's own background / border. */
+:focus,
+:focus-visible {
+  outline: none;
+}
+
+@layer components {
+  /* Frosted card with a light top edge. */
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    
+  }
+  .panel-strong {
+    background: var(--surface-strong);
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    
+  }
+  .menu {
+    background: color-mix(in oklab, var(--bg-solid) 94%, transparent);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    backdrop-filter: blur(24px) saturate(1.5);
+  }
+  .result-text {
+    font-size: var(--text-size);
+    line-height: 1.6;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  .stream-caret::after {
+    content: '';
+    display: inline-block;
+    width: 3px;
+    height: 1.05em;
+    margin-left: 3px;
+    vertical-align: text-bottom;
+    border-radius: 2px;
+    background: var(--accent);
+    animation: var(--animate-blink);
+  }
+}
