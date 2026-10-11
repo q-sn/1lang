@@ -1,15 +1,16 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
 import { useDebounceFn } from '@vueuse/core';
-import { ArrowLeftRight, Check, Copy, ScanText, Volume2, X } from '@lucide/vue';
+import { ArrowLeftRight, Check, Copy, ScanText, X } from '@lucide/vue';
 import { useI18n } from 'vue-i18n';
 import { commands, events, type TranslationResult } from '@/lib/api';
 import { useSettings } from '@/lib/settings';
-import { formatCost, speak, useTranslator } from '@/lib/translator';
+import { formatCost, useTranslator } from '@/lib/translator';
 import Button from '@/ui/Button.vue';
 import DictionaryCard from '@/ui/DictionaryCard.vue';
 import LanguagePicker from '@/ui/LanguagePicker.vue';
 import Select from '@/ui/Select.vue';
+import SpeakButton from '@/ui/SpeakButton.vue';
 import Spinner from '@/ui/Spinner.vue';
 import Tip from '@/ui/Tip.vue';
 
@@ -146,11 +147,7 @@ onMounted(() => {
         <Tip :text="t('translate.ocr')">
           <Button variant="ghost" size="icon" @click="commands.startOcr()"><ScanText class="size-5" /></Button>
         </Tip>
-        <Tip :text="t('translate.speak')">
-          <Button variant="ghost" size="icon" :disabled="!source" @click="speak(source, state.sourceLang)">
-            <Volume2 class="size-5" />
-          </Button>
-        </Tip>
+        <SpeakButton :text="source" :lang="sourceLang ?? state.sourceLang" owner="source" />
         <span v-if="source" class="ml-2 text-[13px] text-faint">{{ t('translate.chars', { n: source.length }) }}</span>
         <div class="flex-1" />
         <Tip v-if="source" :text="t('common.clear')">
@@ -197,11 +194,7 @@ onMounted(() => {
       <div class="flex h-14 shrink-0 items-center gap-1 px-3">
         <span class="ml-3 truncate text-[12.5px] text-faint">{{ meta.join(' · ') }}</span>
         <div class="flex-1" />
-        <Tip :text="t('translate.speak')">
-          <Button variant="ghost" size="icon" :disabled="!state.text" @click="speak(state.text, state.targetLang)">
-            <Volume2 class="size-5" />
-          </Button>
-        </Tip>
+        <SpeakButton :text="state.text" :lang="state.targetLang" owner="target" :disabled="busy" />
         <Tip :text="copied ? t('common.copied') : t('common.copy')">
           <Button variant="soft" size="icon" :disabled="!state.text" @click="copy">
             <Check v-if="copied" class="size-5 text-success" />

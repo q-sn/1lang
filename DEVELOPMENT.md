@@ -21,6 +21,7 @@ cargo test -p onelang-core -p onelang-platform
 cargo clippy --workspace --all-targets -- -D warnings
 cargo run -p onelang-core --example translate -- "Hello" groq    # try a provider (GROQ_API_KEY)
 cargo run -p onelang-platform --example ocr -- image.png          # try Windows OCR
+cargo run -p onelang-speech --example speak -- "Hello" en         # try speech (also: recordings, kokoro)
 ```
 
 ## Project layout
@@ -32,6 +33,11 @@ crates/
     engine.rs         mode, direction (auto-swap), fallback chain, cost
     prompt.rs         prompts, prompt-injection protection, streamed header parsing
     detect.rs         offline language detection
+  onelang-speech/     text to speech, no Tauri code; playback is left to the UI
+    edge.rs           Microsoft Edge "Read aloud" neural voices (online, keyless, unofficial)
+    kokoro/           Kokoro-82M via ONNX Runtime + espeak-ng phonemes (offline, downloaded on demand)
+    recordings.rs     native speaker recordings of single words from Wiktionary / Commons
+    speaker.rs        source choice (recording → engine → Edge fallback) and audio cache
   onelang-platform/   Windows integration
     selection.rs      UI Automation selection (bounds, context) with Ctrl+C fallback
     clipboard.rs      snapshot / restore, private writes
@@ -43,7 +49,8 @@ src/                  Vue frontend: windows/{main,popup,icon,region}, ui/, lib/,
 ```
 
 Settings (`settings.json`) and history/cache (`1lang.db`) live in `%APPDATA%\dev.onelang.app`,
-API keys in Windows Credential Manager.
+API keys in Windows Credential Manager. The offline voice is downloaded to `%APPDATA%\dev.onelang.app\kokoro`,
+speech clips are cached in `%LOCALAPPDATA%\dev.onelang.app\speech`.
 
 ## Releases
 

@@ -1,11 +1,20 @@
 <script setup lang="ts">
-import { Volume2 } from '@lucide/vue';
+import { computed } from 'vue';
+import { Mic } from '@lucide/vue';
 import { useI18n } from 'vue-i18n';
 import type { DictionaryEntry } from '@/lib/api';
-import { speak } from '@/lib/translator';
+import { useSpeech } from '@/lib/speech';
+import SpeakButton from './SpeakButton.vue';
 
-const props = defineProps<{ entry: DictionaryEntry; sourceLang: string | null }>();
+const props = defineProps<{ entry: DictionaryEntry; sourceLang: string | null; owner?: string }>();
 const { t } = useI18n();
+const speech = useSpeech();
+const owner = computed(() => props.owner ?? 'dict');
+/** The word was last played from a native speaker recording. */
+const recording = computed(() => {
+  const s = speech.sources[owner.value];
+  return s?.type === 'recording' ? s : null;
+});
 </script>
 
 <template>
@@ -14,12 +23,14 @@ const { t } = useI18n();
       <span class="font-display text-[1.35em] font-semibold leading-tight">{{ entry.word }}</span>
       <span v-if="entry.lemma && entry.lemma !== entry.word" class="text-muted">→ {{ entry.lemma }}</span>
       <span v-if="entry.transcription" class="font-mono text-[0.85em] text-muted">/{{ entry.transcription }}/</span>
-      <button
-        class="self-center rounded-lg p-1.5 text-muted hover:bg-hover hover:text-fg"
-        @click="speak(props.entry.word, props.sourceLang)"
+      <SpeakButton :text="entry.word" :lang="sourceLang" :owner="owner" small class="self-center" />
+      <span
+        v-if="recording"
+        class="inline-flex items-center gap-1 self-center text-[12px] text-faint"
+        :title="t('speech.recordingTip')"
       >
-        <Volume2 class="size-[18px]" />
-      </button>
+        <Mic class="size-3.5" />{{ t('speech.recording') }}<template v-if="recording.accent"> · {{ recording.accent }}</template>
+      </span>
     </div>
 
     <ol class="space-y-2.5">

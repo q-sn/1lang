@@ -1,0 +1,24 @@
+[package]
+name = "onelang-speech"
+description = "Text to speech of 1lang: Edge neural voices, offline Kokoro, native speaker recordings"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["process", "io-util", "fs"] }
+futures-util.workspace = true
+async-trait.workspace = true
+reqwest.workspace = true
+log.workspace = true
+specta.workspace = true
+sha2 = "0.11"
+uuid = { version = "1", features = ["v4"] }
+httpdate = "1"
+tokio-tungstenite = { version = "0.30", default-features = false, features = ["connect", "handshake", "rustls-tls-webpki-roots"] }
+ort = { version = "=2.0.0-rc.13", default-features = false, features = ["std", "download-binaries", "tls-rustls", "copy-dylibs", "api-27"] }
+msi = "0.10"

@@ -7,6 +7,8 @@ use std::time::Duration;
 use onelang_core::providers::ProviderKind;
 use onelang_core::{detect, lang, TranslateEvent, TranslateRequest, TranslationResult};
 use onelang_platform::{clipboard, input, ocr, system};
+use onelang_speech::kokoro::InstallProgress;
+use onelang_speech::{ClipSource, Engine as SpeechEngine, Voice};
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use tauri::ipc::Channel;
@@ -19,6 +21,7 @@ use crate::db::{HistoryItem, HistoryQuery, Origin, UsageStats};
 use crate::events::{HistoryChanged, MainNavigate, MainOpenText, RegionShow, SettingsChanged};
 use crate::secrets;
 use crate::service::{self, RunOptions};
+use crate::speech;
 use crate::settings::Settings;
 use crate::state::{AppExt, PopupPayload};
 use crate::triggers;
@@ -319,7 +322,90 @@ pub fn usage_reset(app: AppHandle) -> Result<(), String> {
 #[tauri::command(async)]
 #[specta::specta]
 pub fn cache_clear(app: AppHandle) -> Result<(), String> {
-    app.state_ref().db.lock().unwrap().clear_cache().map_err(|e| e.to_string())
+    let state = app.state_ref();
+    state.db.lock().unwrap().clear_cache().map_err(|e| e.to_string())?;
+    state.speech.cache().clear().map_err(|e| e.to_string())
+}
+
+// ---------- speech ----------
+
+#[derive(Deserialize, Type)]
+pub struct SpeakRequest {
+    pub text: String,
+    /// ISO 639-1 code of the text.
+    pub lang: String,
+    /// Use the "slowly" speed.
+    pub slow: bool,
+}
+
+#[derive(Serialize, Type)]
+pub struct SpeechClip {
+    pub url: String,
+    pub source: ClipSource,
+    pub playback_rate: f32,
+}
+
+fn to_clip(c: onelang_speech::Clip) -> SpeechClip {
+    SpeechClip { url: speech::clip_url(&c.file), source: c.source, playback_rate: c.playback_rate }
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn speak(app: AppHandle, request: SpeakRequest) -> Result<SpeechClip, String> {
+    let state = app.state_ref();
+    let opts = speech::options(&state.settings(), &request.lang, request.slow);
+    state.speech.speak(&request.text, &request.lang, &opts).await.map(to_clip).map_err(|e| e.to_string())
+}
+
+/// Speak with a given voice (previews in settings).
+#[tauri::command]
+#[specta::specta]
+pub async fn speak_preview(app: AppHandle, text: String, engine: SpeechEngine, voice: String) -> Result<SpeechClip, String> {
+    let state = app.state_ref();
+    let rate = state.settings().speech.rate as f32 / 100.0;
+    state.speech.speak_with(&text, engine, &voice, rate).await.map(to_clip).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn speech_voices(app: AppHandle, engine: SpeechEngine) -> Result<Vec<Voice>, String> {
+    app.state_ref().speech.voices(engine).await.map_err(|e| e.to_string())
+}
+
+#[derive(Serialize, Type)]
+pub struct KokoroStatus {
+    pub installed: bool,
+    pub installing: bool,
+    /// Bytes.
+    pub download_size: f64,
+    pub languages: Vec<String>,
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn kokoro_status(app: AppHandle) -> KokoroStatus {
+    let speech = &app.state_ref().speech;
+    KokoroStatus {
+        installed: speech.kokoro_installed(),
+        installing: speech.kokoro_installing(),
+        download_size: onelang_speech::kokoro::download_size(onelang_speech::kokoro::voices().len()) as f64,
+        languages: onelang_speech::kokoro::LANGUAGES.iter().map(|l| l.to_string()).collect(),
+    }
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn kokoro_install(app: AppHandle, on_progress: Channel<InstallProgress>) -> Result<(), String> {
+    let report = move |p: InstallProgress| {
+        let _ = on_progress.send(p);
+    };
+    app.state_ref().speech.install_kokoro(&report).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command(async)]
+#[specta::specta]
+pub fn kokoro_remove(app: AppHandle) -> Result<(), String> {
+    app.state_ref().speech.remove_kokoro().map_err(|e| e.to_string())
 }
 
 // ---------- popup ----------

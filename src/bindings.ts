@@ -30,6 +30,13 @@ export const commands = {
 	usageStats: () => typedError<UsageStats, string>(__TAURI_INVOKE("usage_stats")),
 	usageReset: () => typedError<null, string>(__TAURI_INVOKE("usage_reset")),
 	cacheClear: () => typedError<null, string>(__TAURI_INVOKE("cache_clear")),
+	speak: (request: SpeakRequest) => typedError<SpeechClip, string>(__TAURI_INVOKE("speak", { request })),
+	/**  Speak with a given voice (previews in settings). */
+	speakPreview: (text: string, engine: Engine, voice: string) => typedError<SpeechClip, string>(__TAURI_INVOKE("speak_preview", { text, engine, voice })),
+	speechVoices: (engine: Engine) => typedError<Voice[], string>(__TAURI_INVOKE("speech_voices", { engine })),
+	kokoroStatus: () => __TAURI_INVOKE<KokoroStatus>("kokoro_status"),
+	kokoroInstall: (onProgress: Channel<InstallProgress>) => typedError<null, string>(__TAURI_INVOKE("kokoro_install", { onProgress })),
+	kokoroRemove: () => typedError<null, string>(__TAURI_INVOKE("kokoro_remove")),
 	popupTakePending: () => __TAURI_INVOKE<{
 	id: number,
 	text: string,
@@ -97,6 +104,15 @@ export type AppInfo = {
 	languages: string[],
 };
 
+/**  Where a clip came from, shown to the user. */
+export type ClipSource = 
+/**  A native speaker recording (Wikimedia Commons, via Wiktionary). */
+{ type: "recording"; 
+/**  Accent label, e.g. "US" or "UK, RP". */
+accent: string | null; 
+/**  Commons page of the file (author and license). */
+page_url: string } | { type: "voice"; engine: Engine; voice: string };
+
 /**  How the source language is detected when the user did not set it. */
 export type DetectionMode = 
 /**  Fast offline detector; LLM / provider decides only when it is unsure. */
@@ -130,6 +146,12 @@ export type DoubleCopyDetection =
 "clipboard" | 
 /**  Low-level keyboard hook. */
 "keyboard";
+
+export type Engine = 
+/**  Microsoft Edge neural voices, online. */
+"edge" | 
+/**  Kokoro-82M, offline. */
+"kokoro";
 
 export type Formality = "default" | "formal" | "informal";
 
@@ -188,9 +210,26 @@ export type HotkeySettings = {
 
 export type IconBusy = boolean;
 
+export type InstallProgress = {
+	stage: InstallStage,
+	/**  Bytes downloaded in total, across all stages. */
+	done: number | null,
+	total: number | null,
+};
+
+export type InstallStage = "model" | "voices" | "phonemizer";
+
 export type KeyStatus = {
 	id: string,
 	hint: string | null,
+};
+
+export type KokoroStatus = {
+	installed: boolean,
+	installing: boolean,
+	/**  Bytes. */
+	download_size: number | null,
+	languages: string[],
 };
 
 export type LanguageSettings = {
@@ -361,6 +400,7 @@ export type Settings = {
 	hotkeys?: HotkeySettings,
 	popup?: PopupSettings,
 	ocr?: OcrSettings,
+	speech?: SpeechSettings,
 	/**  Automatic triggers (button, Ctrl+C+C) are paused from the tray. */
 	paused?: boolean,
 };
@@ -370,6 +410,33 @@ export type SettingsChanged = Settings;
 export type SettingsUpdate = {
 	settings: Settings,
 	warnings: string[],
+};
+
+export type SpeakRequest = {
+	text: string,
+	/**  ISO 639-1 code of the text. */
+	lang: string,
+	/**  Use the "slowly" speed. */
+	slow: boolean,
+};
+
+export type SpeechClip = {
+	url: string,
+	source: ClipSource,
+	playback_rate: number | null,
+};
+
+export type SpeechSettings = {
+	engine?: Engine,
+	/**  Voice per language (ISO 639-1 → voice id); missing = default voice. */
+	edge_voices?: { [key in string]: string },
+	kokoro_voices?: { [key in string]: string },
+	/**  Normal speed, percent. */
+	rate?: number,
+	/**  Speed of the "slowly" button, percent. */
+	slow_rate?: number,
+	/**  Play native speaker recordings (Wiktionary) for single words. */
+	word_recordings?: boolean,
 };
 
 export type ThemeMode = "system" | "light" | "dark";
@@ -462,6 +529,16 @@ export type UsageStats = {
 	today: UsageRow[],
 	month: UsageRow[],
 	total: UsageRow[],
+};
+
+export type Voice = {
+	id: string,
+	/**  Short display name, e.g. "Sonia". */
+	name: string,
+	/**  BCP-47, e.g. "en-GB". */
+	locale: string,
+	gender: string | null,
+	engine: Engine,
 };
 
 export type WindowEffect = 

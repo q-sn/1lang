@@ -19,17 +19,18 @@ import {
   PinOff,
   Replace,
   Settings,
-  Volume2,
   X,
 } from '@lucide/vue';
 import { useI18n } from 'vue-i18n';
 import { commands, events, type PopupPayload } from '@/lib/api';
 import { useLanguages } from '@/lib/langs';
-import { speak, useTranslator } from '@/lib/translator';
+import { useTranslator } from '@/lib/translator';
+import { stopSpeech } from '@/lib/speech';
 import { useSettings } from '@/lib/settings';
 import Button from '@/ui/Button.vue';
 import DictionaryCard from '@/ui/DictionaryCard.vue';
 import LanguagePicker from '@/ui/LanguagePicker.vue';
+import SpeakButton from '@/ui/SpeakButton.vue';
 import Spinner from '@/ui/Spinner.vue';
 import Tip from '@/ui/Tip.vue';
 import ResizeHandles from '@/ui/ResizeHandles.vue';
@@ -71,6 +72,7 @@ function show(p: PopupPayload) {
   copied.value = false;
   if (settings.value.popup.always_pinned) pinned.value = true;
   reset();
+  stopSpeech();
   editing.value = !p.text;
   if (p.translate && p.text.trim()) translate();
   else if (editing.value) nextTick(() => editor.value?.focus());
@@ -135,7 +137,7 @@ onMounted(async () => {
   await events.popupHidden.listen(() => {
     reset();
     pinned.value = false;
-    window.speechSynthesis?.cancel();
+    stopSpeech();
   });
   const pending = await commands.popupTakePending();
   if (pending) show(pending);
@@ -179,12 +181,6 @@ onMounted(async () => {
               align="end"
               class="menu z-50 max-h-[var(--reka-dropdown-menu-content-available-height)] min-w-64 overflow-y-auto p-1.5 animate-pop-in"
             >
-              <DropdownMenuItem
-                class="flex h-11 items-center gap-3 rounded-[10px] px-3 text-[15px] outline-none data-[highlighted]:bg-hover"
-                @select="speak(state.text, state.targetLang)"
-              >
-                <Volume2 class="size-5 text-muted" />{{ t('translate.speak') }}
-              </DropdownMenuItem>
               <DropdownMenuItem
                 v-if="payload?.app"
                 class="flex h-11 items-center gap-3 rounded-[10px] px-3 text-[15px] outline-none data-[highlighted]:bg-hover"
@@ -268,6 +264,13 @@ onMounted(async () => {
             <Maximize2 class="size-5" />
             {{ t('popup.open') }}
           </Button>
+          <SpeakButton
+            v-if="state.kind === 'text'"
+            :text="state.text"
+            :lang="state.targetLang"
+            owner="popup"
+            :disabled="busy"
+          />
           <span class="min-w-0 flex-1" />
           <Button
             v-if="payload?.can_replace"

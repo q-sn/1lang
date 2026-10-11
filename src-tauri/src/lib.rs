@@ -5,6 +5,7 @@ mod events;
 mod secrets;
 mod service;
 mod settings;
+mod speech;
 mod state;
 mod tray;
 mod triggers;
@@ -45,6 +46,12 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::usage_stats,
             commands::usage_reset,
             commands::cache_clear,
+            commands::speak,
+            commands::speak_preview,
+            commands::speech_voices,
+            commands::kokoro_status,
+            commands::kokoro_install,
+            commands::kokoro_remove,
             commands::popup_take_pending,
             commands::popup_set_pinned,
             commands::popup_hide,
@@ -131,11 +138,20 @@ pub fn run() {
                 responder.respond(resp.unwrap());
             });
         })
+        // Cached speech clips for <audio>: http://speech.localhost/<file>
+        .register_asynchronous_uri_scheme_protocol("speech", |ctx, request, responder| {
+            let app = ctx.app_handle().clone();
+            let path = request.uri().path().to_string();
+            std::thread::spawn(move || {
+                responder.respond(speech::serve(&app.state_ref().speech, &path));
+            });
+        })
         .setup(move |app| {
             builder.mount_events(app);
             let handle = app.handle().clone();
             let config_dir = app.path().app_config_dir()?;
             let data_dir = app.path().app_data_dir()?;
+            let cache_dir = app.path().app_cache_dir()?;
             let settings_file = settings::SettingsFile::new(config_dir);
             let settings = settings_file.load();
             let db = db::Db::open(&data_dir.join("1lang.db")).map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
@@ -149,7 +165,7 @@ pub fn run() {
                 settings: RwLock::new(settings.clone()),
                 settings_file,
                 db: Mutex::new(db),
-                http,
+                http: http.clone(),
                 tasks: Mutex::new(Default::default()),
                 popup: Mutex::new(Default::default()),
                 icon: Mutex::new(Default::default()),
@@ -160,7 +176,10 @@ pub fn run() {
                 ocr_active: Default::default(),
                 ocr_to_main: Default::default(),
                 win11: windows::is_windows_11(),
+                speech: onelang_speech::Speaker::new(http.clone(), data_dir.join("kokoro"), cache_dir.join("speech")),
             });
+            let prune_handle = handle.clone();
+            std::thread::spawn(move || speech::prune_cache(&prune_handle.state_ref().speech));
 
             // Pre-create windows so they appear instantly when needed.
             let main = windows::ensure_main(&handle)?;

@@ -72,6 +72,7 @@ pub struct AppState {
     pub ocr_to_main: std::sync::atomic::AtomicBool,
     /// Windows 11: Mica / Acrylic are available.
     pub win11: bool,
+    pub speech: onelang_speech::Speaker,
 }
 
 impl AppState {

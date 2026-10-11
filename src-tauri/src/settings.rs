@@ -1,10 +1,12 @@
 //! User settings, stored as JSON in the app config directory.
 
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use onelang_core::providers::{ProviderConfig, ProviderKind};
 use onelang_core::{lang, DetectionMode, Formality};
 use onelang_platform::SelectionMethod;
+use onelang_speech::Engine as SpeechEngine;
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
@@ -262,6 +264,34 @@ impl Default for OcrSettings {
 
 #[derive(Serialize, Deserialize, Type, Clone, Debug, PartialEq)]
 #[serde(default)]
+pub struct SpeechSettings {
+    pub engine: SpeechEngine,
+    /// Voice per language (ISO 639-1 → voice id); missing = default voice.
+    pub edge_voices: BTreeMap<String, String>,
+    pub kokoro_voices: BTreeMap<String, String>,
+    /// Normal speed, percent.
+    pub rate: u32,
+    /// Speed of the "slowly" button, percent.
+    pub slow_rate: u32,
+    /// Play native speaker recordings (Wiktionary) for single words.
+    pub word_recordings: bool,
+}
+
+impl Default for SpeechSettings {
+    fn default() -> Self {
+        Self {
+            engine: SpeechEngine::Edge,
+            edge_voices: BTreeMap::new(),
+            kokoro_voices: BTreeMap::new(),
+            rate: 100,
+            slow_rate: 70,
+            word_recordings: true,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Type, Clone, Debug, PartialEq)]
+#[serde(default)]
 pub struct Settings {
     pub version: u32,
     pub general: GeneralSettings,
@@ -273,6 +303,7 @@ pub struct Settings {
     pub hotkeys: HotkeySettings,
     pub popup: PopupSettings,
     pub ocr: OcrSettings,
+    pub speech: SpeechSettings,
     /// Automatic triggers (button, Ctrl+C+C) are paused from the tray.
     pub paused: bool,
 }
@@ -293,6 +324,7 @@ impl Default for Settings {
             hotkeys: Default::default(),
             popup: Default::default(),
             ocr: Default::default(),
+            speech: Default::default(),
             paused: false,
         }
     }

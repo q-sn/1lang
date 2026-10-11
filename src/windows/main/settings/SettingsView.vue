@@ -10,6 +10,7 @@ import {
   PanelTop,
   ScanText,
   SlidersHorizontal,
+  Volume2,
 } from '@lucide/vue';
 import { useI18n } from 'vue-i18n';
 import { useSettings } from '@/lib/settings';
@@ -17,6 +18,7 @@ import GeneralSection from './GeneralSection.vue';
 import LanguagesSection from './LanguagesSection.vue';
 import ProvidersSection from './ProvidersSection.vue';
 import TranslationSection from './TranslationSection.vue';
+import SpeechSection from './SpeechSection.vue';
 import SelectionSection from './SelectionSection.vue';
 import HotkeysSection from './HotkeysSection.vue';
 import PopupSection from './PopupSection.vue';
@@ -32,6 +34,7 @@ const sections: { id: string; component: Component; icon: Component }[] = [
   { id: 'languages', icon: Languages, component: LanguagesSection },
   { id: 'providers', icon: Bot, component: ProvidersSection },
   { id: 'translation', icon: MessageSquareText, component: TranslationSection },
+  { id: 'speech', icon: Volume2, component: SpeechSection },
   { id: 'selection', icon: MousePointerClick, component: SelectionSection },
   { id: 'hotkeys', icon: Keyboard, component: HotkeysSection },
   { id: 'popup', icon: PanelTop, component: PopupSection },

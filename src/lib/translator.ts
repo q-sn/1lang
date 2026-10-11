@@ -162,23 +162,6 @@ export function useTranslator() {
   return { state, run, cancel, reset };
 }
 
-/** Speak text with the system voices (Web Speech API in WebView2). */
-export function speak(text: string, lang: string | null) {
-  const synth = window.speechSynthesis;
-  if (!synth) return;
-  if (synth.speaking) {
-    synth.cancel();
-    return;
-  }
-  const u = new SpeechSynthesisUtterance(text);
-  if (lang) {
-    u.lang = lang;
-    const voice = synth.getVoices().find((v) => v.lang.toLowerCase().startsWith(lang.toLowerCase()));
-    if (voice) u.voice = voice;
-  }
-  synth.speak(u);
-}
-
 export function formatCost(usd: number | null | undefined): string {
   if (usd == null) return '';
   if (usd === 0) return '$0';
