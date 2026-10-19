@@ -30,6 +30,7 @@ export function usePopupAutosize(
   const manual = ref(false);
   const win = getCurrentWindow();
   let scheduled = false;
+  let nudged = false;
 
   async function fit() {
     scheduled = false;
@@ -43,6 +44,17 @@ export function usePopupAutosize(
     const sf = await win.scaleFactor();
     const zoom = window.devicePixelRatio / sf;
     const inner = await win.innerSize();
+    // Sometimes the webview misses a window resize and keeps its old size:
+    // an empty strip at the bottom, content cut off. Another resize fixes it.
+    const stale = Math.abs(window.innerHeight * window.devicePixelRatio - inner.height) > 2;
+    if (!stale) nudged = false;
+    else if (!nudged) {
+      nudged = true;
+      await win.setSize(new LogicalSize(inner.width / sf, inner.height / sf + 1));
+      await win.setSize(new LogicalSize(inner.width / sf, inner.height / sf));
+      schedule();
+      return;
+    }
     const width = Math.round(preferredWidth() * zoom);
     // Width first: the text re-wraps, then the height is measured again.
     if (Math.abs(inner.width / sf - width) >= 2) {
@@ -54,6 +66,8 @@ export function usePopupAutosize(
     if (Math.abs(inner.height / sf - height) < 2) return;
     if (growOnly() && height < inner.height / sf) return;
     await win.setSize(new LogicalSize(width, height));
+    // Check that the webview followed (see above) once it had time to.
+    setTimeout(schedule, 200);
 
     // Keep the grown window on screen.
     const [pos, monitor] = await Promise.all([win.outerPosition(), currentMonitor()]);
@@ -79,6 +93,7 @@ export function usePopupAutosize(
     /** Call when a new text is shown. */
     reset() {
       manual.value = false;
+      nudged = false;
       schedule();
     },
   };
