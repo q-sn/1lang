@@ -38,8 +38,18 @@ impl Error {
     pub(crate) async fn from_response(resp: reqwest::Response) -> Error {
         let status = resp.status().as_u16();
         let body = resp.text().await.unwrap_or_default();
-        Error::Http { status, body: truncate(&body, 500) }
+        let body = json_message(&body).unwrap_or(body);
+        Error::Http { status, body: truncate(body.trim(), 500) }
     }
+}
+
+/// The human-readable message of a JSON error body
+/// (`{"error":{"message":…}}`, `{"error":"…"}`, `{"message":…}`).
+fn json_message(body: &str) -> Option<String> {
+    let v: serde_json::Value = serde_json::from_str(body).ok()?;
+    let v = v.get("error").filter(|e| !e.is_null()).unwrap_or(&v);
+    let s = v.as_str().or_else(|| ["message", "detail"].iter().find_map(|k| v.get(*k)?.as_str()))?;
+    (!s.trim().is_empty()).then(|| s.to_string())
 }
 
 pub(crate) fn truncate(s: &str, max: usize) -> String {
@@ -53,3 +63,18 @@ pub(crate) fn truncate(s: &str, max: usize) -> String {
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
+
+#[cfg(test)]
+mod tests {
+    use super::json_message;
+
+    #[test]
+    fn json_error_messages() {
+        let groq = r#"{"error":{"message":"Rate limit reached","type":"tokens","code":"rate_limit_exceeded"}}"#;
+        assert_eq!(json_message(groq).as_deref(), Some("Rate limit reached"));
+        assert_eq!(json_message(r#"{"error":"Bad key"}"#).as_deref(), Some("Bad key"));
+        assert_eq!(json_message(r#"{"message":"Quota exceeded"}"#).as_deref(), Some("Quota exceeded"));
+        assert_eq!(json_message("<html>502</html>"), None);
+        assert_eq!(json_message(r#"{"error":{"code":5}}"#), None);
+    }
+}

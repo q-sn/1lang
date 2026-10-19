@@ -159,7 +159,7 @@ function askRemove() {
     <div
       v-if="testResult"
       :class="[
-        'selectable mx-3 mb-2.5 rounded-md px-2.5 py-1.5 text-[12px]',
+        'selectable mx-3 mb-2.5 rounded-md px-2.5 py-1.5 text-[12px] wrap-anywhere',
         testResult.ok ? 'bg-success/10 text-success' : 'bg-danger/10 text-danger',
       ]"
     >

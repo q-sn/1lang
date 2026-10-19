@@ -135,7 +135,7 @@ const TIER_CLASS: Record<ModelTier, string> = {
             <Spinner v-if="loading" class="size-3.5" />
           </div>
           <div v-if="!canLoad" class="px-3 py-2 text-[13px] text-faint">{{ t('settings.providers.modelsNeedKey') }}</div>
-          <div v-else-if="error" class="selectable px-3 py-2 text-[13px] text-danger">
+          <div v-else-if="error" class="selectable px-3 py-2 text-[13px] text-danger wrap-anywhere">
             {{ error }}
             <button class="ml-1 underline" @click="load">{{ t('common.retry') }}</button>
           </div>
