@@ -138,12 +138,11 @@ impl Engine {
                 provider.dictionary(&job).await.map(|d| {
                     let text = d
                         .entry
-                        .senses
-                        .iter()
-                        .flat_map(|s| s.translations.first())
-                        .cloned()
-                        .collect::<Vec<_>>()
-                        .join(", ");
+                        .translation
+                        .clone()
+                        .filter(|t| !t.trim().is_empty())
+                        .or_else(|| d.entry.senses.iter().find_map(|s| s.translations.first().cloned()))
+                        .unwrap_or_default();
                     (text, d.source, d.target, d.usage, Some(d.entry))
                 })
             } else {

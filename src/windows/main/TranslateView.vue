@@ -10,6 +10,7 @@ import Button from '@/ui/Button.vue';
 import DictionaryCard from '@/ui/DictionaryCard.vue';
 import LanguagePicker from '@/ui/LanguagePicker.vue';
 import Select from '@/ui/Select.vue';
+import SourceWord from '@/ui/SourceWord.vue';
 import SpeakButton from '@/ui/SpeakButton.vue';
 import Spinner from '@/ui/Spinner.vue';
 import Tip from '@/ui/Tip.vue';
@@ -149,6 +150,13 @@ onMounted(() => {
         </Tip>
         <SpeakButton :text="source" :lang="sourceLang ?? state.sourceLang" owner="source" />
         <span v-if="source" class="ml-2 text-[13px] text-faint">{{ t('translate.chars', { n: source.length }) }}</span>
+        <SourceWord
+          v-if="state.kind === 'dictionary' && state.dictionary"
+          :entry="state.dictionary"
+          :lang="state.sourceLang"
+          owner="source"
+          class="ml-3"
+        />
         <div class="flex-1" />
         <Tip v-if="source" :text="t('common.clear')">
           <Button variant="ghost" size="icon" @click="clear"><X class="size-5" /></Button>
@@ -171,7 +179,7 @@ onMounted(() => {
         <Select v-model="providerId" :options="providerOptions" size="sm" trigger-class="max-w-48" />
       </div>
       <div class="min-h-0 flex-1 overflow-y-auto px-6 py-5">
-        <div v-if="state.status === 'error'" class="selectable rounded-2xl bg-danger/10 p-4 text-[14px] text-danger">
+        <div v-if="state.status === 'error'" class="selectable rounded-2xl bg-danger/10 p-4 text-[14px] text-danger wrap-anywhere">
           {{ state.error }}
           <div class="mt-3">
             <Button size="sm" @click="translateNow">{{ t('common.retry') }}</Button>
@@ -180,7 +188,7 @@ onMounted(() => {
         <DictionaryCard
           v-else-if="state.kind === 'dictionary' && state.dictionary"
           :entry="state.dictionary"
-          :source-lang="state.sourceLang"
+          :text="state.text"
         />
         <div
           v-else-if="state.text"

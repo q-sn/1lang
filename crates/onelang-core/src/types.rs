@@ -85,6 +85,9 @@ pub struct DictionarySense {
     pub pos: Option<String>,
     #[serde(default)]
     pub translations: Vec<String>,
+    /// IPA of each of `translations`, in the same order, without slashes.
+    #[serde(default)]
+    pub transcriptions: Vec<String>,
     #[serde(default)]
     pub meaning: Option<String>,
     #[serde(default)]
@@ -94,6 +97,12 @@ pub struct DictionarySense {
 #[derive(Serialize, Deserialize, Type, Clone, Debug, Default, PartialEq)]
 pub struct DictionaryEntry {
     pub word: String,
+    /// The single best translation, shown and copied as the result.
+    #[serde(default)]
+    pub translation: Option<String>,
+    /// IPA of `translation`, without slashes.
+    #[serde(default)]
+    pub translation_transcription: Option<String>,
     #[serde(default)]
     pub lemma: Option<String>,
     #[serde(default)]

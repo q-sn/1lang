@@ -129,9 +129,9 @@ pub fn dictionary(job: &Job) -> Prompt {
          Write translations, meanings, parts of speech and notes in {target_name}. Examples: \"source\" in the word's language, \"target\" its translation.\n\
          Reply with ONLY a JSON object of this shape:\n\
          {{\"source_lang\": \"ISO 639-1 code of the word\", \"target_lang\": \"ISO 639-1 code of the target language\", \
-         \"word\": string, \"lemma\": string or null (dictionary form, only if different), \
+         \"word\": string, \"translation\": string (the single most common translation, as a translator would give it), \"translation_transcription\": string or null (IPA of the translation, without slashes), \"lemma\": string or null (dictionary form, only if different), \
          \"transcription\": string or null (IPA of the word, without slashes), \
-         \"senses\": [{{\"pos\": string, \"translations\": [string], \"meaning\": string, \"examples\": [{{\"source\": string, \"target\": string}}]}}], \
+         \"senses\": [{{\"pos\": string, \"translations\": [string], \"transcriptions\": [string] (IPA of each translation, same order, without slashes),\"meaning\": string, \"examples\": [{{\"source\": string, \"target\": string}}]}}], \
          \"forms\": string or null (key grammatical forms), \"note\": string or null (register, idioms, false friends)}}\n\
          Up to 4 senses, most common first; up to 5 translations per sense, most common first; 1–2 short natural examples per sense.\n{}",
         common_tail(job, &target_name)

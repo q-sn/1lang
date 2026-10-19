@@ -30,6 +30,7 @@ import { useSettings } from '@/lib/settings';
 import Button from '@/ui/Button.vue';
 import DictionaryCard from '@/ui/DictionaryCard.vue';
 import LanguagePicker from '@/ui/LanguagePicker.vue';
+import SourceWord from '@/ui/SourceWord.vue';
 import SpeakButton from '@/ui/SpeakButton.vue';
 import Spinner from '@/ui/Spinner.vue';
 import Tip from '@/ui/Tip.vue';
@@ -224,6 +225,14 @@ onMounted(async () => {
           :title="t('popup.edit')"
           @click="expandedSource ? (editing = true) : (expandedSource = true)"
         >{{ source }}</button>
+        <SourceWord
+          v-if="!editing && state.kind === 'dictionary' && state.dictionary"
+          :entry="state.dictionary"
+          :lang="state.sourceLang"
+          owner="dict"
+          speakable
+          class="px-1"
+        />
       </div>
 
       <!-- translation -->
@@ -233,14 +242,14 @@ onMounted(async () => {
       >
         <div ref="contentEl">
           <div v-if="notice && state.status === 'idle'" class="text-[16px] text-muted">{{ notice }}</div>
-          <div v-else-if="state.status === 'error'" class="selectable text-[15px] text-danger">
+          <div v-else-if="state.status === 'error'" class="selectable text-[15px] text-danger wrap-anywhere">
             {{ state.error }}
             <div class="mt-3"><Button size="sm" @click="translate">{{ t('common.retry') }}</Button></div>
           </div>
           <DictionaryCard
             v-else-if="state.kind === 'dictionary' && state.dictionary"
             :entry="state.dictionary"
-            :source-lang="state.sourceLang"
+            :text="state.text"
           />
           <div v-else-if="state.text" :class="['result-text selectable', state.status === 'streaming' && 'stream-caret']">{{ state.text }}</div>
           <div v-else-if="busy" class="flex items-center justify-center py-3 text-accent">
@@ -267,7 +276,6 @@ onMounted(async () => {
             {{ t('popup.open') }}
           </Button>
           <SpeakButton
-            v-if="state.kind === 'text'"
             :text="state.text"
             :lang="state.targetLang"
             owner="popup"

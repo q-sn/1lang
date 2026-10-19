@@ -124,6 +124,10 @@ export type DetectionMode =
 
 export type DictionaryEntry = {
 	word: string,
+	/**  The single best translation, shown and copied as the result. */
+	translation?: string | null,
+	/**  IPA of `translation`, without slashes. */
+	translation_transcription?: string | null,
 	lemma?: string | null,
 	transcription?: string | null,
 	senses?: DictionarySense[],
@@ -139,6 +143,8 @@ export type DictionaryExample = {
 export type DictionarySense = {
 	pos?: string | null,
 	translations?: string[],
+	/**  IPA of each of `translations`, in the same order, without slashes. */
+	transcriptions?: string[],
 	meaning?: string | null,
 	examples?: DictionaryExample[],
 };
