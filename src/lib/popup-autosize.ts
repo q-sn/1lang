@@ -24,6 +24,8 @@ export function usePopupAutosize(
   deps: WatchSource[],
   /** Desired width in CSS px for the current text. */
   preferredWidth: () => number,
+  /** Keep the current size (e.g. a spinner while the result is loading). */
+  hold: () => boolean = () => false,
 ) {
   const manual = ref(false);
   const win = getCurrentWindow();
@@ -31,7 +33,7 @@ export function usePopupAutosize(
 
   async function fit() {
     scheduled = false;
-    if (manual.value || !root.value || !scroller.value || !content.value) return;
+    if (manual.value || hold() || !root.value || !scroller.value || !content.value) return;
     const chrome = root.value.offsetHeight - scroller.value.clientHeight;
     const style = getComputedStyle(scroller.value);
     const padding = parseFloat(style.paddingTop) + parseFloat(style.paddingBottom);

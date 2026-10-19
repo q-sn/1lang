@@ -3,6 +3,7 @@
 //! The hook procedures only forward events into a channel; all logic runs on
 //! the consumer side, because Windows drops hooks that are slow to return.
 
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::Mutex;
 use std::thread::{self, JoinHandle};
@@ -10,6 +11,7 @@ use std::thread::{self, JoinHandle};
 use windows::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Threading::GetCurrentThreadId;
+use windows::Win32::UI::Input::KeyboardAndMouse::{GetLastInputInfo, LASTINPUTINFO};
 use windows::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, DispatchMessageW, GetMessageW, PostThreadMessageW, SetWindowsHookExW, TranslateMessage,
     UnhookWindowsHookEx, HHOOK, KBDLLHOOKSTRUCT, LLKHF_INJECTED, LLMHF_INJECTED, MSG, MSLLHOOKSTRUCT, WH_KEYBOARD_LL,
@@ -35,6 +37,8 @@ pub enum HookEvent {
 }
 
 static SENDER: Mutex<Option<Sender<HookEvent>>> = Mutex::new(None);
+/// Event time (GetTickCount) of the last call into any of our hooks.
+static LAST_SEEN: AtomicU32 = AtomicU32::new(0);
 
 fn forward(ev: HookEvent) {
     if let Ok(guard) = SENDER.lock() {
@@ -47,6 +51,7 @@ fn forward(ev: HookEvent) {
 unsafe extern "system" fn keyboard_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     if code >= 0 {
         let info = &*(lparam.0 as *const KBDLLHOOKSTRUCT);
+        LAST_SEEN.store(info.time, Ordering::Relaxed);
         if (info.flags.0 & LLKHF_INJECTED.0) == 0 {
             match wparam.0 as u32 {
                 WM_KEYDOWN | WM_SYSKEYDOWN => forward(HookEvent::KeyDown { vk: info.vkCode }),
@@ -61,6 +66,7 @@ unsafe extern "system" fn keyboard_proc(code: i32, wparam: WPARAM, lparam: LPARA
 unsafe extern "system" fn mouse_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     if code >= 0 {
         let info = &*(lparam.0 as *const MSLLHOOKSTRUCT);
+        LAST_SEEN.store(info.time, Ordering::Relaxed);
         if (info.flags & LLMHF_INJECTED) == 0 {
             let pos = Point { x: info.pt.x, y: info.pt.y };
             let ev = match wparam.0 as u32 {
@@ -116,6 +122,9 @@ impl Hooks {
                         }
                     }
                 }
+                if let Some(t) = last_input_time() {
+                    LAST_SEEN.store(t, Ordering::Relaxed);
+                }
                 let _ = ready_tx.send(Ok(GetCurrentThreadId()));
                 let mut msg = MSG::default();
                 while GetMessageW(&mut msg, None, 0, 0).as_bool() {
@@ -133,6 +142,20 @@ impl Hooks {
             .map_err(crate::Error::Other)?;
         Ok((Hooks { thread_id, handle: Some(handle) }, rx))
     }
+}
+
+/// Windows silently removes a low-level hook whose procedure was too slow to
+/// return (it happens under load, e.g. right after logon). Returns false when
+/// the system got input that none of our hooks saw for `grace_ms`.
+pub fn seem_alive(grace_ms: u32) -> bool {
+    let Some(input) = last_input_time() else { return true };
+    let seen = LAST_SEEN.load(Ordering::Relaxed);
+    (input.wrapping_sub(seen) as i32) < grace_ms as i32
+}
+
+fn last_input_time() -> Option<u32> {
+    let mut info = LASTINPUTINFO { cbSize: std::mem::size_of::<LASTINPUTINFO>() as u32, dwTime: 0 };
+    unsafe { GetLastInputInfo(&mut info) }.as_bool().then_some(info.dwTime)
 }
 
 impl Drop for Hooks {

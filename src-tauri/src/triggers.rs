@@ -1,14 +1,15 @@
 //! Global hotkeys, input hooks and the clipboard watcher. Everything is
 //! (re)configured from settings by `apply`.
 
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver};
+use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
 use onelang_platform::clipboard_watch::ClipboardWatcher;
-use onelang_platform::hooks::{vk, HookEvent, Hooks, MouseButton};
-use onelang_platform::{input, Point};
+use onelang_platform::hooks::{self, vk, HookEvent, Hooks, MouseButton};
+use onelang_platform::{clipboard, input, system, Point};
 use tauri::AppHandle;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
@@ -23,6 +24,13 @@ type Action = fn(AppHandle);
 pub struct TriggerRuntime {
     _hooks: Option<Hooks>,
     _watcher: Option<ClipboardWatcher>,
+    stopped: Arc<AtomicBool>,
+}
+
+impl Drop for TriggerRuntime {
+    fn drop(&mut self) {
+        self.stopped.store(true, Ordering::Relaxed);
+    }
 }
 
 /// Register hotkeys; returns human-readable problems (e.g. a hotkey already taken).
@@ -66,15 +74,23 @@ pub fn apply(app: &AppHandle) {
         return;
     }
 
-    let keyboard_double_copy =
-        s.selection.double_copy_enabled && s.selection.double_copy_detection == DoubleCopyDetection::Keyboard;
+    // When the keyboard hook runs anyway (for the button), it detects Ctrl+C+C
+    // better than clipboard timing: browsers write the clipboard late, often
+    // after Ctrl is already released.
+    let keyboard_double_copy = s.selection.double_copy_enabled
+        && (s.selection.icon_enabled || s.selection.double_copy_detection == DoubleCopyDetection::Keyboard);
     let need_keyboard = s.selection.icon_enabled || keyboard_double_copy;
     let need_mouse = s.selection.icon_enabled;
+    let stopped = Arc::new(AtomicBool::new(false));
 
     let hooks = if need_keyboard || need_mouse {
         match Hooks::start(need_keyboard, need_mouse) {
             Ok((hooks, rx)) => {
                 spawn_hook_consumer(app.clone(), rx, keyboard_double_copy, s.selection.double_copy_interval_ms);
+                // Mouse moves keep the hooks busy, so silence means they are gone.
+                if need_mouse {
+                    spawn_hook_watchdog(app.clone(), stopped.clone());
+                }
                 Some(hooks)
             }
             Err(e) => {
@@ -86,8 +102,7 @@ pub fn apply(app: &AppHandle) {
         None
     };
 
-    let watcher = if s.selection.double_copy_enabled && s.selection.double_copy_detection == DoubleCopyDetection::Clipboard
-    {
+    let watcher = if s.selection.double_copy_enabled && !keyboard_double_copy {
         let handle = app.clone();
         let interval = s.selection.double_copy_interval_ms as i64;
         let last = std::sync::atomic::AtomicI64::new(0);
@@ -120,7 +135,26 @@ pub fn apply(app: &AppHandle) {
         None
     };
 
-    *state.triggers.lock().unwrap() = Some(TriggerRuntime { _hooks: hooks, _watcher: watcher });
+    *state.triggers.lock().unwrap() = Some(TriggerRuntime { _hooks: hooks, _watcher: watcher, stopped });
+}
+
+/// Windows drops low-level hooks that respond too slowly (typical right after
+/// logon, when everything starts at once) without telling us. Reinstall them.
+fn spawn_hook_watchdog(app: AppHandle, stopped: Arc<AtomicBool>) {
+    thread::Builder::new()
+        .name("hook-watchdog".into())
+        .spawn(move || loop {
+            thread::sleep(Duration::from_secs(2));
+            if stopped.load(Ordering::Relaxed) {
+                return;
+            }
+            if !hooks::seem_alive(3000) {
+                log::warn!("input hooks stopped receiving events, reinstalling");
+                apply(&app);
+                return;
+            }
+        })
+        .ok();
 }
 
 fn dist(a: Point, b: Point) -> f64 {
@@ -156,11 +190,14 @@ fn spawn_hook_consumer(app: AppHandle, rx: Receiver<HookEvent>, keyboard_double_
             let interval = Duration::from_millis(interval_ms as u64);
             let mut down_pos = Point::default();
             let mut down_at = Instant::now();
+            // The drag started in a screenshot overlay: the snip closes on mouse
+            // up, and the app below must not get a button for its old selection.
+            let mut down_in_capture = false;
             let mut last_up_pos = Point::default();
             let mut last_up_at = Instant::now() - Duration::from_secs(10);
-            let mut ctrl = false;
             let mut shift = false;
-            let mut last_ctrl_c: Option<Instant> = None;
+            // Time of the first Ctrl+C and the clipboard before it.
+            let mut last_ctrl_c: Option<(Instant, u32)> = None;
             // Auto-repeat of a held C must not count as a second press.
             let mut c_down = false;
 
@@ -190,6 +227,7 @@ fn spawn_hook_consumer(app: AppHandle, rx: Receiver<HookEvent>, keyboard_double_
                         if button == MouseButton::Left {
                             down_pos = pos;
                             down_at = Instant::now();
+                            down_in_capture = system::foreground_app().is_some_and(|a| actions::is_screen_capture(&a));
                         }
                     }
                     HookEvent::MouseUp { button: MouseButton::Left, pos } => {
@@ -200,20 +238,22 @@ fn spawn_hook_consumer(app: AppHandle, rx: Receiver<HookEvent>, keyboard_double_
                         let shift_click = shift && !dragged;
                         last_up_at = now;
                         last_up_pos = pos;
-                        if dragged || double_click || shift_click {
+                        if (dragged || double_click || shift_click) && !down_in_capture {
                             let _ = check_tx.send(Duration::from_millis(if double_click { 120 } else { 60 }));
                         }
                     }
                     HookEvent::MouseUp { .. } => {}
                     HookEvent::KeyDown { vk: code } => {
                         if vk::is_ctrl(code) {
-                            ctrl = true;
                             continue;
                         }
                         if vk::is_shift(code) {
                             shift = true;
                             continue;
                         }
+                        // Not tracked from our own events: a missed Ctrl release (secure
+                        // desktop, elevated windows) would turn plain "c" into Ctrl+C.
+                        let ctrl = input::is_ctrl_down();
                         if keyboard_double_copy && ctrl && code == vk::C {
                             if c_down {
                                 continue;
@@ -221,16 +261,21 @@ fn spawn_hook_consumer(app: AppHandle, rx: Receiver<HookEvent>, keyboard_double_
                             c_down = true;
                             let now = Instant::now();
                             match last_ctrl_c {
-                                Some(t) if now.duration_since(t) <= interval => {
+                                Some((t, seq)) if now.duration_since(t) <= interval => {
                                     last_ctrl_c = None;
                                     let app = app.clone();
                                     thread::spawn(move || {
-                                        // Let the app finish writing to the clipboard.
-                                        thread::sleep(Duration::from_millis(120));
+                                        // Both presses copy the same text; wait until at least one
+                                        // copy landed. Browsers write the clipboard asynchronously.
+                                        let deadline = Instant::now() + Duration::from_millis(600);
+                                        while clipboard::sequence_number() == seq && Instant::now() < deadline {
+                                            thread::sleep(Duration::from_millis(15));
+                                        }
+                                        thread::sleep(Duration::from_millis(40));
                                         actions::translate_clipboard(app, true);
                                     });
                                 }
-                                _ => last_ctrl_c = Some(now),
+                                _ => last_ctrl_c = Some((now, clipboard::sequence_number())),
                             }
                             continue;
                         }
@@ -246,9 +291,6 @@ fn spawn_hook_consumer(app: AppHandle, rx: Receiver<HookEvent>, keyboard_double_
                     HookEvent::KeyUp { vk: code } => {
                         if code == vk::C {
                             c_down = false;
-                        }
-                        if vk::is_ctrl(code) {
-                            ctrl = false;
                         }
                         if vk::is_shift(code) {
                             shift = false;

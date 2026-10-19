@@ -76,7 +76,12 @@ function addApp() {
         <Switch v-model="s.double_copy_enabled" />
       </Field>
       <template v-if="s.double_copy_enabled">
-        <Field :label="t('settings.selection.detection')" :description="t('settings.selection.detectionDesc')">
+        <!-- With the button on, the keyboard hook runs anyway and is used. -->
+        <Field
+          v-if="!s.icon_enabled"
+          :label="t('settings.selection.detection')"
+          :description="t('settings.selection.detectionDesc')"
+        >
           <Segmented v-model="s.double_copy_detection" :options="detections" />
         </Field>
         <Field :label="t('settings.selection.interval')">

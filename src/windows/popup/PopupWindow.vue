@@ -61,7 +61,9 @@ const autosize = usePopupAutosize(rootEl, scrollerEl, contentEl, [
   () => payload.value?.id,
   editing,
   expandedSource,
-], () => popupWidth(Math.max(source.value.length, state.text.length), settings.value.popup.width));
+], () => popupWidth(Math.max(source.value.length, state.text.length), settings.value.popup.width),
+  // Shrinking to the spinner and growing back to the result makes the window jump.
+  () => state.status === 'loading' && !state.text);
 
 function show(p: PopupPayload) {
   payload.value = p;

@@ -20,6 +20,9 @@ pub const MAIN: &str = "main";
 pub const POPUP: &str = "popup";
 pub const ICON: &str = "icon";
 pub const ICON_SIZE: f64 = 52.0;
+/// The popup opens this tall (CSS px at 100% zoom) and grows with the result,
+/// same as `MIN_HEIGHT` in src/lib/popup-autosize.ts.
+const POPUP_MIN_HEIGHT: f64 = 190.0;
 
 pub fn is_windows_11() -> bool {
     #[cfg(windows)]
@@ -164,7 +167,7 @@ pub fn ensure_popup(app: &AppHandle) -> tauri::Result<WebviewWindow> {
     let w = WebviewWindowBuilder::new(app, POPUP, WebviewUrl::App("index.html".into()))
         .title("1lang")
         .inner_size(s.popup.width as f64, s.popup.height as f64)
-        .min_inner_size(420.0, 190.0)
+        .min_inner_size(420.0, POPUP_MIN_HEIGHT)
         .decorations(false)
         .transparent(true)
         .shadow(true)
@@ -326,7 +329,7 @@ fn open_popup_now(app: &AppHandle, mut payload: PopupPayload, anchoring: Anchori
         let (area, sf) = work_area(app, center);
         let zoom = settings.general.ui_scale.max(50) as f64 / 100.0;
         let pw_ = popup_width(payload.text.chars().count(), settings.popup.width) * sf * zoom;
-        let ph = settings.popup.height as f64 * sf * zoom;
+        let ph = POPUP_MIN_HEIGHT * sf * zoom;
         let cursor_anchor = Rect {
             x: anchoring.cursor.x as f64 - 24.0 * sf,
             y: anchoring.cursor.y as f64,

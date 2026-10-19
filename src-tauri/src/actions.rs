@@ -21,8 +21,16 @@ fn is_self(app: &ForegroundApp) -> bool {
     app.pid == std::process::id()
 }
 
+/// Screenshot overlays (PrtScn, Win+Shift+S): dragging there is not a text
+/// selection, and our button on top of the overlay breaks the snip.
+pub fn is_screen_capture(app: &ForegroundApp) -> bool {
+    const CAPTURE: [&str; 3] = ["screenclippinghost.exe", "snippingtool.exe", "screensketch.exe"];
+    CAPTURE.contains(&app.exe.as_str())
+}
+
 pub fn is_excluded(settings: &Settings, app: &ForegroundApp) -> bool {
     is_self(app)
+        || is_screen_capture(app)
         || settings
             .selection
             .excluded_apps
