@@ -1,4 +1,5 @@
-//! Text recognition with the built-in Windows OCR (Windows.Media.Ocr).
+//! Text recognition: the Snipping Tool engine when it is installed, the
+//! built-in Windows OCR (Windows.Media.Ocr) otherwise.
 
 use image::RgbaImage;
 use windows::core::HSTRING;
@@ -7,6 +8,7 @@ use windows::Graphics::Imaging::{BitmapAlphaMode, BitmapPixelFormat, SoftwareBit
 use windows::Media::Ocr::{OcrEngine, OcrLine, OcrResult};
 use windows::Storage::Streams::DataWriter;
 
+use super::oneocr;
 use crate::{Error, OcrOutput, Result};
 
 /// BCP-47 tags of installed OCR languages.
@@ -76,11 +78,15 @@ fn is_cjk(s: &str) -> bool {
     s.chars().any(|c| matches!(c as u32, 0x3040..=0x30FF | 0x3400..=0x9FFF | 0xAC00..=0xD7AF))
 }
 
+fn quad_box(line: oneocr::Line) -> LineBox {
+    let q = line.quad;
+    let y = q.y1.min(q.y2);
+    LineBox { x: q.x1.min(q.x4), y, h: (q.y3.max(q.y4) - y).max(1.0), text: line.text }
+}
+
 /// Join OCR lines into paragraphs: lines close to each other and similarly
 /// indented belong to the same paragraph (better for translation than hard breaks).
-fn join_lines(result: &OcrResult) -> Result<String> {
-    let lines = result.Lines()?;
-    let boxes: Vec<LineBox> = lines.into_iter().filter_map(|l| line_box(&l).ok()).collect();
+fn join_lines(boxes: &[LineBox]) -> String {
     let mut out = String::new();
     for (i, b) in boxes.iter().enumerate() {
         if i > 0 {
@@ -100,12 +106,13 @@ fn join_lines(result: &OcrResult) -> Result<String> {
         }
         out.push_str(&b.text);
     }
-    Ok(out)
+    out
 }
 
 fn recognize_with(engine: &OcrEngine, bitmap: &SoftwareBitmap) -> Result<String> {
-    let result = engine.RecognizeAsync(bitmap)?.join()?;
-    join_lines(&result)
+    let result: OcrResult = engine.RecognizeAsync(bitmap)?.join()?;
+    let boxes: Vec<LineBox> = result.Lines()?.into_iter().filter_map(|l| line_box(&l).ok()).collect();
+    Ok(join_lines(&boxes))
 }
 
 /// Plausibility of recognized text: words made of one script, few stray symbols.
@@ -130,9 +137,19 @@ fn score(text: &str) -> f64 {
     good as f64 / total as f64 + (text.len() as f64).ln() * 0.01
 }
 
-/// Recognize text. `language`: BCP-47 tag, or `None` to try the installed
+/// Recognize text, with the Snipping Tool engine when `snipping` is set and it
+/// works. Windows OCR: `language` is a BCP-47 tag, or `None` to try the installed
 /// recognizers that match `preferred` languages and keep the most plausible result.
-pub fn recognize(img: &RgbaImage, language: Option<&str>, preferred: &[String]) -> Result<OcrOutput> {
+pub fn recognize(img: &RgbaImage, snipping: bool, language: Option<&str>, preferred: &[String]) -> Result<OcrOutput> {
+    if snipping && oneocr::is_available() {
+        match oneocr::recognize(img) {
+            Ok(lines) => {
+                let boxes: Vec<LineBox> = lines.into_iter().map(quad_box).collect();
+                return Ok(OcrOutput { text: join_lines(&boxes), language: String::new() });
+            }
+            Err(e) => log::warn!("Snipping Tool OCR failed, using Windows OCR: {e}"),
+        }
+    }
     let prepared = prepare(img);
 
     if let Some(tag) = language.filter(|t| !t.is_empty() && *t != "auto") {

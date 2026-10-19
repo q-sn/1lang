@@ -11,10 +11,10 @@ use std::thread::{self, JoinHandle};
 use windows::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Threading::GetCurrentThreadId;
-use windows::Win32::UI::Input::KeyboardAndMouse::{GetLastInputInfo, LASTINPUTINFO};
+use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, GetLastInputInfo, LASTINPUTINFO, VK_CONTROL};
 use windows::Win32::UI::WindowsAndMessaging::{
-    CallNextHookEx, DispatchMessageW, GetMessageW, PostThreadMessageW, SetWindowsHookExW, TranslateMessage,
-    UnhookWindowsHookEx, HHOOK, KBDLLHOOKSTRUCT, LLKHF_INJECTED, LLMHF_INJECTED, MSG, MSLLHOOKSTRUCT, WH_KEYBOARD_LL,
+    CallNextHookEx, DispatchMessageW, GetMessageW, KillTimer, PostThreadMessageW, SetTimer, SetWindowsHookExW,
+    TranslateMessage, UnhookWindowsHookEx, HHOOK, HOOKPROC, WM_TIMER, KBDLLHOOKSTRUCT, LLKHF_INJECTED, LLMHF_INJECTED, MSG, MSLLHOOKSTRUCT, WH_KEYBOARD_LL,
     WH_MOUSE_LL, WM_KEYDOWN, WM_KEYUP, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN, WM_QUIT, WM_RBUTTONDOWN,
     WM_SYSKEYDOWN, WM_SYSKEYUP,
 };
@@ -30,7 +30,8 @@ pub enum MouseButton {
 
 #[derive(Debug, Clone, Copy)]
 pub enum HookEvent {
-    KeyDown { vk: u32 },
+    /// `ctrl`: Ctrl was held at that moment; `time`: event time in ms (GetTickCount).
+    KeyDown { vk: u32, ctrl: bool, time: u32 },
     KeyUp { vk: u32 },
     MouseDown { button: MouseButton, pos: Point },
     MouseUp { button: MouseButton, pos: Point },
@@ -54,7 +55,11 @@ unsafe extern "system" fn keyboard_proc(code: i32, wparam: WPARAM, lparam: LPARA
         LAST_SEEN.store(info.time, Ordering::Relaxed);
         if (info.flags.0 & LLKHF_INJECTED.0) == 0 {
             match wparam.0 as u32 {
-                WM_KEYDOWN | WM_SYSKEYDOWN => forward(HookEvent::KeyDown { vk: info.vkCode }),
+                WM_KEYDOWN | WM_SYSKEYDOWN => {
+                    // Read here, not by the consumer: by then Ctrl may be released already.
+                    let ctrl = (GetAsyncKeyState(VK_CONTROL.0 as i32) as u16 & 0x8000) != 0;
+                    forward(HookEvent::KeyDown { vk: info.vkCode, ctrl, time: info.time })
+                }
                 WM_KEYUP | WM_SYSKEYUP => forward(HookEvent::KeyUp { vk: info.vkCode }),
                 _ => {}
             }
@@ -98,39 +103,40 @@ impl Hooks {
         let handle = thread::Builder::new()
             .name("input-hooks".into())
             .spawn(move || unsafe {
-                let hmod = GetModuleHandleW(None).ok();
-                let hinst = hmod.map(|m| m.into());
-                let mut hooks: Vec<HHOOK> = vec![];
-                if keyboard {
-                    match SetWindowsHookExW(WH_KEYBOARD_LL, Some(keyboard_proc), hinst, 0) {
-                        Ok(h) => hooks.push(h),
-                        Err(e) => {
-                            let _ = ready_tx.send(Err(e.to_string()));
-                            return;
-                        }
+                let mut hooks = match install(keyboard, mouse) {
+                    Ok(h) => h,
+                    Err(e) => {
+                        let _ = ready_tx.send(Err(e));
+                        return;
                     }
-                }
-                if mouse {
-                    match SetWindowsHookExW(WH_MOUSE_LL, Some(mouse_proc), hinst, 0) {
-                        Ok(h) => hooks.push(h),
-                        Err(e) => {
-                            for h in hooks {
-                                let _ = UnhookWindowsHookEx(h);
-                            }
-                            let _ = ready_tx.send(Err(e.to_string()));
-                            return;
-                        }
-                    }
-                }
-                if let Some(t) = last_input_time() {
-                    LAST_SEEN.store(t, Ordering::Relaxed);
-                }
+                };
+                mark_seen_now();
                 let _ = ready_tx.send(Ok(GetCurrentThreadId()));
+                // Thread timer: WM_TIMER arrives through GetMessage with no window.
+                let timer = SetTimer(None, 0, WATCHDOG_MS, None);
                 let mut msg = MSG::default();
                 while GetMessageW(&mut msg, None, 0, 0).as_bool() {
+                    if msg.message == WM_TIMER && msg.hwnd.0.is_null() && msg.wParam.0 == timer {
+                        if !seem_alive(WATCHDOG_MS + 1000) {
+                            // New hooks first, then the old ones: both are called only from
+                            // this thread's loop, so no event is lost or seen twice.
+                            match install(keyboard, mouse) {
+                                Ok(new) => {
+                                    log::warn!("input hooks got no events, reinstalled");
+                                    for h in std::mem::replace(&mut hooks, new) {
+                                        let _ = UnhookWindowsHookEx(h);
+                                    }
+                                }
+                                Err(e) => log::error!("reinstalling input hooks: {e}"),
+                            }
+                            mark_seen_now();
+                        }
+                        continue;
+                    }
                     let _ = TranslateMessage(&msg);
                     DispatchMessageW(&msg);
                 }
+                let _ = KillTimer(None, timer);
                 for h in hooks {
                     let _ = UnhookWindowsHookEx(h);
                 }
@@ -144,10 +150,50 @@ impl Hooks {
     }
 }
 
+const WATCHDOG_MS: u32 = 2000;
+
+unsafe fn install(keyboard: bool, mouse: bool) -> std::result::Result<Vec<HHOOK>, String> {
+    let hinst = GetModuleHandleW(None).ok().map(|m| m.into());
+    let mut hooks: Vec<HHOOK> = vec![];
+    let mut add = |kind, proc_: HOOKPROC| match SetWindowsHookExW(kind, proc_, hinst, 0) {
+        Ok(h) => {
+            hooks.push(h);
+            Ok(())
+        }
+        Err(e) => Err(e.to_string()),
+    };
+    let res = (|| {
+        if keyboard {
+            add(WH_KEYBOARD_LL, Some(keyboard_proc))?;
+        }
+        if mouse {
+            add(WH_MOUSE_LL, Some(mouse_proc))?;
+        }
+        Ok(())
+    })();
+    match res {
+        Ok(()) => Ok(hooks),
+        Err(e) => {
+            for h in hooks {
+                let _ = UnhookWindowsHookEx(h);
+            }
+            Err(e)
+        }
+    }
+}
+
+fn mark_seen_now() {
+    if let Some(t) = last_input_time() {
+        LAST_SEEN.store(t, Ordering::Relaxed);
+    }
+}
+
 /// Windows silently removes a low-level hook whose procedure was too slow to
 /// return (it happens under load, e.g. right after logon). Returns false when
-/// the system got input that none of our hooks saw for `grace_ms`.
-pub fn seem_alive(grace_ms: u32) -> bool {
+/// the system got input that none of our hooks saw for `grace_ms`. Some input
+/// (e.g. zero-distance mouse moves) never reaches hooks, so a false alarm is
+/// possible and must be cheap.
+fn seem_alive(grace_ms: u32) -> bool {
     let Some(input) = last_input_time() else { return true };
     let seen = LAST_SEEN.load(Ordering::Relaxed);
     (input.wrapping_sub(seen) as i32) < grace_ms as i32

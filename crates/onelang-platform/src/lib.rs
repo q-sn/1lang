@@ -12,4 +12,4 @@ pub use error::{Error, Result};
 pub use types::*;
 
 #[cfg(windows)]
-pub use win::{clipboard, clipboard_watch, hooks, input, ocr, selection, system, window};
+pub use win::{clipboard, clipboard_watch, hooks, input, ocr, oneocr, selection, system, window};

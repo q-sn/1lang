@@ -100,6 +100,8 @@ export type AppInfo = {
 	system_language: string,
 	is_windows_11: boolean,
 	ocr_languages: string[],
+	/**  The Snipping Tool OCR engine is installed. */
+	snipping_ocr: boolean,
 	accent_colors: string[],
 	languages: string[],
 };
@@ -256,7 +258,12 @@ export type ModelTier =
 /**  Best balance of quality, speed and price for translation. */
 "recommended" | "fast" | "quality";
 
+export type OcrEngineKind = 
+/**  The Snipping Tool engine when installed, Windows OCR otherwise. */
+"snipping" | "windows";
+
 export type OcrSettings = {
+	engine?: OcrEngineKind,
 	/**  BCP-47 tag of a Windows OCR language, or "auto". */
 	language?: string,
 	/**  Translate right away (otherwise only show the recognized text). */

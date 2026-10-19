@@ -247,9 +247,19 @@ impl Default for PopupSettings {
     }
 }
 
+#[derive(Serialize, Deserialize, Type, Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum OcrEngineKind {
+    /// The Snipping Tool engine when installed, Windows OCR otherwise.
+    #[default]
+    Snipping,
+    Windows,
+}
+
 #[derive(Serialize, Deserialize, Type, Clone, Debug, PartialEq)]
 #[serde(default)]
 pub struct OcrSettings {
+    pub engine: OcrEngineKind,
     /// BCP-47 tag of a Windows OCR language, or "auto".
     pub language: String,
     /// Translate right away (otherwise only show the recognized text).
@@ -258,7 +268,7 @@ pub struct OcrSettings {
 
 impl Default for OcrSettings {
     fn default() -> Self {
-        Self { language: "auto".into(), translate: true }
+        Self { engine: OcrEngineKind::Snipping, language: "auto".into(), translate: true }
     }
 }
 

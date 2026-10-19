@@ -13,7 +13,7 @@ use tauri_specta::Event;
 use crate::db::{now_ms, Origin};
 use crate::events::{IconBusy, RegionShow};
 use crate::service::{self, RunOptions};
-use crate::settings::{Anchor, Settings};
+use crate::settings::{Anchor, OcrEngineKind, Settings};
 use crate::state::{AppExt, PopupPayload};
 use crate::windows::{self, Anchoring};
 
@@ -171,12 +171,16 @@ pub fn translate_clipboard(app: AppHandle, automatic: bool) {
         if automatic {
             let s = app.state_ref().settings();
             if s.paused || fg.as_ref().is_some_and(|a| is_excluded(&s, a)) {
+                log::debug!("Ctrl+C+C ignored in {:?}", fg.map(|a| a.exe));
                 return;
             }
         }
         let text = match clipboard::read_text() {
             Ok(Some(t)) if !t.trim().is_empty() => t,
-            _ => return,
+            other => {
+                log::debug!("clipboard has no text: {:?}", other.map(|t| t.map(|t| t.len())));
+                return;
+            }
         };
         windows::hide_icon(&app);
         let cursor = system::cursor_position();
@@ -297,6 +301,10 @@ pub fn start_ocr(app: AppHandle) {
     if app.state_ref().ocr_active.swap(true, Ordering::SeqCst) {
         return;
     }
+    if app.state_ref().settings().ocr.engine == OcrEngineKind::Snipping {
+        // Load the engine while the user picks the region.
+        thread::spawn(onelang_platform::oneocr::warm_up);
+    }
     thread::spawn(move || {
         windows::hide_icon(&app);
         if app.state_ref().ocr_to_main.load(Ordering::SeqCst) {
@@ -412,7 +420,8 @@ pub fn region_selected(app: AppHandle, index: u32, x: f64, y: f64, w: f64, h: f6
         let cursor = system::cursor_position();
         let lang = Some(settings.ocr.language.as_str()).filter(|l| *l != "auto");
         let mut p = payload(String::new(), None, Origin::Ocr, None);
-        let result = ocr::recognize(&image, lang, &settings.languages.favorites);
+        let snipping = settings.ocr.engine == OcrEngineKind::Snipping;
+        let result = ocr::recognize(&image, snipping, lang, &settings.languages.favorites);
         if let Ok(out) = &result {
             if !out.text.trim().is_empty() && restore_main_after_ocr(&app, Some(out.text.clone())) {
                 return;

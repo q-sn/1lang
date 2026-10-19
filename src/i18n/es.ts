@@ -274,6 +274,10 @@ const es: typeof en = {
       recordingsDesc: 'Una palabra suelta se reproduce con una grabación real (Wikcionario) si existe; si no, con la voz.',
     },
     ocr: {
+      engine: 'Motor',
+      engines: { snipping: 'Recortes', windows: 'Windows OCR' },
+      engineDesc: 'El motor de Recortes es más preciso y detecta el idioma por sí mismo.',
+      snippingMissing: 'Instala Recortes desde Microsoft Store para un mejor reconocimiento; por ahora se usa Windows OCR.',
       language: 'Idioma de reconocimiento',
       auto: 'Automático (tus idiomas)',
       none: 'No hay idiomas OCR instalados. Añade un idioma con «Reconocimiento óptico de caracteres» en Configuración de Windows → Hora e idioma → Idioma y región.',

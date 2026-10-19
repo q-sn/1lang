@@ -272,6 +272,10 @@ export default {
       recordingsDesc: 'A single word is played from a real recording (Wiktionary) when there is one, otherwise by the voice.',
     },
     ocr: {
+      engine: 'Engine',
+      engines: { snipping: 'Snipping Tool', windows: 'Windows OCR' },
+      engineDesc: 'The Snipping Tool engine is more accurate and detects the language by itself.',
+      snippingMissing: 'Install Snipping Tool from the Microsoft Store for better recognition; Windows OCR is used for now.',
       language: 'Recognition language',
       auto: 'Automatic (your languages)',
       none: 'No OCR languages are installed. Add a language with “Optical character recognition” in Windows Settings → Time & language → Language & region.',

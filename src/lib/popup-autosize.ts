@@ -24,8 +24,8 @@ export function usePopupAutosize(
   deps: WatchSource[],
   /** Desired width in CSS px for the current text. */
   preferredWidth: () => number,
-  /** Keep the current size (e.g. a spinner while the result is loading). */
-  hold: () => boolean = () => false,
+  /** Only grow, never shrink (e.g. a spinner while the result is loading). */
+  growOnly: () => boolean = () => false,
 ) {
   const manual = ref(false);
   const win = getCurrentWindow();
@@ -33,7 +33,7 @@ export function usePopupAutosize(
 
   async function fit() {
     scheduled = false;
-    if (manual.value || hold() || !root.value || !scroller.value || !content.value) return;
+    if (manual.value || !root.value || !scroller.value || !content.value) return;
     const chrome = root.value.offsetHeight - scroller.value.clientHeight;
     const style = getComputedStyle(scroller.value);
     const padding = parseFloat(style.paddingTop) + parseFloat(style.paddingBottom);
@@ -52,6 +52,7 @@ export function usePopupAutosize(
     }
     const height = Math.round(cssHeight * zoom);
     if (Math.abs(inner.height / sf - height) < 2) return;
+    if (growOnly() && height < inner.height / sf) return;
     await win.setSize(new LogicalSize(width, height));
 
     // Keep the grown window on screen.

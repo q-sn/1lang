@@ -94,6 +94,27 @@ pub fn export_bindings(path: &str) {
         .expect("failed to export TypeScript bindings");
 }
 
+/// Release builds have no console: log to %LOCALAPPDATA%/dev.onelang.app/logs/1lang.log
+/// (the previous run is kept as 1lang.old.log).
+fn init_logging() {
+    let mut builder = env_logger::Builder::from_env(
+        env_logger::Env::default().default_filter_or("info,onelang_lib=debug,onelang_core=debug,onelang_platform=debug"),
+    );
+    if !cfg!(debug_assertions) {
+        let file = std::env::var_os("LOCALAPPDATA").and_then(|base| {
+            let dir = std::path::PathBuf::from(base).join("dev.onelang.app").join("logs");
+            std::fs::create_dir_all(&dir).ok()?;
+            let path = dir.join("1lang.log");
+            let _ = std::fs::rename(&path, dir.join("1lang.old.log"));
+            std::fs::File::create(path).ok()
+        });
+        if let Some(file) = file {
+            builder.target(env_logger::Target::Pipe(Box::new(file)));
+        }
+    }
+    builder.init();
+}
+
 pub fn run() {
     // `cargo run -p onelang -- --export-bindings` (test binaries can't load
     // Tauri on Windows without the app manifest, so this is a CLI flag).
@@ -101,7 +122,7 @@ pub fn run() {
         export_bindings("../src/bindings.ts");
         return;
     }
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info,onelang_lib=debug,onelang_core=debug,onelang_platform=debug")).init();
+    init_logging();
 
     let builder = specta_builder();
     #[cfg(debug_assertions)]
@@ -153,6 +174,7 @@ pub fn run() {
             let data_dir = app.path().app_data_dir()?;
             let cache_dir = app.path().app_cache_dir()?;
             let settings_file = settings::SettingsFile::new(config_dir);
+            onelang_platform::oneocr::set_work_dir(cache_dir.join("oneocr"));
             let settings = settings_file.load();
             let db = db::Db::open(&data_dir.join("1lang.db")).map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
             let http = reqwest::Client::builder()

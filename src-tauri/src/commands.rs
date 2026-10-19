@@ -33,6 +33,8 @@ pub struct AppInfo {
     pub system_language: String,
     pub is_windows_11: bool,
     pub ocr_languages: Vec<String>,
+    /// The Snipping Tool OCR engine is installed.
+    pub snipping_ocr: bool,
     pub accent_colors: Vec<String>,
     pub languages: Vec<String>,
 }
@@ -45,6 +47,7 @@ pub fn app_info(app: AppHandle) -> AppInfo {
         system_language: crate::settings::system_language(),
         is_windows_11: app.state_ref().win11,
         ocr_languages: ocr::available_languages().unwrap_or_default(),
+        snipping_ocr: onelang_platform::oneocr::is_available(),
         accent_colors: system::accent_colors().unwrap_or_default(),
         languages: lang::all_codes(),
     }

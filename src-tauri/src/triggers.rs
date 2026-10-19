@@ -1,14 +1,13 @@
 //! Global hotkeys, input hooks and the clipboard watcher. Everything is
 //! (re)configured from settings by `apply`.
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::Ordering;
 use std::sync::mpsc::{self, Receiver};
-use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
 use onelang_platform::clipboard_watch::ClipboardWatcher;
-use onelang_platform::hooks::{self, vk, HookEvent, Hooks, MouseButton};
+use onelang_platform::hooks::{vk, HookEvent, Hooks, MouseButton};
 use onelang_platform::{clipboard, input, system, Point};
 use tauri::AppHandle;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
@@ -24,13 +23,6 @@ type Action = fn(AppHandle);
 pub struct TriggerRuntime {
     _hooks: Option<Hooks>,
     _watcher: Option<ClipboardWatcher>,
-    stopped: Arc<AtomicBool>,
-}
-
-impl Drop for TriggerRuntime {
-    fn drop(&mut self) {
-        self.stopped.store(true, Ordering::Relaxed);
-    }
 }
 
 /// Register hotkeys; returns human-readable problems (e.g. a hotkey already taken).
@@ -81,16 +73,11 @@ pub fn apply(app: &AppHandle) {
         && (s.selection.icon_enabled || s.selection.double_copy_detection == DoubleCopyDetection::Keyboard);
     let need_keyboard = s.selection.icon_enabled || keyboard_double_copy;
     let need_mouse = s.selection.icon_enabled;
-    let stopped = Arc::new(AtomicBool::new(false));
 
     let hooks = if need_keyboard || need_mouse {
         match Hooks::start(need_keyboard, need_mouse) {
             Ok((hooks, rx)) => {
                 spawn_hook_consumer(app.clone(), rx, keyboard_double_copy, s.selection.double_copy_interval_ms);
-                // Mouse moves keep the hooks busy, so silence means they are gone.
-                if need_mouse {
-                    spawn_hook_watchdog(app.clone(), stopped.clone());
-                }
                 Some(hooks)
             }
             Err(e) => {
@@ -135,26 +122,7 @@ pub fn apply(app: &AppHandle) {
         None
     };
 
-    *state.triggers.lock().unwrap() = Some(TriggerRuntime { _hooks: hooks, _watcher: watcher, stopped });
-}
-
-/// Windows drops low-level hooks that respond too slowly (typical right after
-/// logon, when everything starts at once) without telling us. Reinstall them.
-fn spawn_hook_watchdog(app: AppHandle, stopped: Arc<AtomicBool>) {
-    thread::Builder::new()
-        .name("hook-watchdog".into())
-        .spawn(move || loop {
-            thread::sleep(Duration::from_secs(2));
-            if stopped.load(Ordering::Relaxed) {
-                return;
-            }
-            if !hooks::seem_alive(3000) {
-                log::warn!("input hooks stopped receiving events, reinstalling");
-                apply(&app);
-                return;
-            }
-        })
-        .ok();
+    *state.triggers.lock().unwrap() = Some(TriggerRuntime { _hooks: hooks, _watcher: watcher });
 }
 
 fn dist(a: Point, b: Point) -> f64 {
@@ -187,7 +155,6 @@ fn spawn_hook_consumer(app: AppHandle, rx: Receiver<HookEvent>, keyboard_double_
     thread::Builder::new()
         .name("hook-consumer".into())
         .spawn(move || {
-            let interval = Duration::from_millis(interval_ms as u64);
             let mut down_pos = Point::default();
             let mut down_at = Instant::now();
             // The drag started in a screenshot overlay: the snip closes on mouse
@@ -196,8 +163,8 @@ fn spawn_hook_consumer(app: AppHandle, rx: Receiver<HookEvent>, keyboard_double_
             let mut last_up_pos = Point::default();
             let mut last_up_at = Instant::now() - Duration::from_secs(10);
             let mut shift = false;
-            // Time of the first Ctrl+C and the clipboard before it.
-            let mut last_ctrl_c: Option<(Instant, u32)> = None;
+            // Event time of the first Ctrl+C and the clipboard before it.
+            let mut last_ctrl_c: Option<(u32, u32)> = None;
             // Auto-repeat of a held C must not count as a second press.
             let mut c_down = false;
 
@@ -243,7 +210,7 @@ fn spawn_hook_consumer(app: AppHandle, rx: Receiver<HookEvent>, keyboard_double_
                         }
                     }
                     HookEvent::MouseUp { .. } => {}
-                    HookEvent::KeyDown { vk: code } => {
+                    HookEvent::KeyDown { vk: code, ctrl, time } => {
                         if vk::is_ctrl(code) {
                             continue;
                         }
@@ -251,17 +218,14 @@ fn spawn_hook_consumer(app: AppHandle, rx: Receiver<HookEvent>, keyboard_double_
                             shift = true;
                             continue;
                         }
-                        // Not tracked from our own events: a missed Ctrl release (secure
-                        // desktop, elevated windows) would turn plain "c" into Ctrl+C.
-                        let ctrl = input::is_ctrl_down();
                         if keyboard_double_copy && ctrl && code == vk::C {
                             if c_down {
                                 continue;
                             }
                             c_down = true;
-                            let now = Instant::now();
                             match last_ctrl_c {
-                                Some((t, seq)) if now.duration_since(t) <= interval => {
+                                Some((t, seq)) if time.wrapping_sub(t) <= interval_ms => {
+                                    log::debug!("Ctrl+C+C ({} ms)", time.wrapping_sub(t));
                                     last_ctrl_c = None;
                                     let app = app.clone();
                                     thread::spawn(move || {
@@ -275,7 +239,12 @@ fn spawn_hook_consumer(app: AppHandle, rx: Receiver<HookEvent>, keyboard_double_
                                         actions::translate_clipboard(app, true);
                                     });
                                 }
-                                _ => last_ctrl_c = Some((now, clipboard::sequence_number())),
+                                prev => {
+                                    if let Some((t, _)) = prev {
+                                        log::debug!("Ctrl+C, {} ms after the previous one", time.wrapping_sub(t));
+                                    }
+                                    last_ctrl_c = Some((time, clipboard::sequence_number()));
+                                }
                             }
                             continue;
                         }
