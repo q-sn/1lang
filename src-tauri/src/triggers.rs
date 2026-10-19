@@ -165,12 +165,15 @@ fn spawn_hook_consumer(app: AppHandle, rx: Receiver<HookEvent>, keyboard_double_
             let mut shift = false;
             // Event time of the first Ctrl+C and the clipboard before it.
             let mut last_ctrl_c: Option<(u32, u32)> = None;
-            // Auto-repeat of a held C must not count as a second press.
-            let mut c_down = false;
+            // Auto-repeat of a held C must not count as a second press: event time
+            // of the last C keydown while C is held. The release is sometimes not
+            // reported (the popup takes focus right then), so it also expires.
+            let mut c_down: Option<u32> = None;
 
             while let Ok(ev) = rx.recv() {
                 match ev {
                     HookEvent::MouseDown { button, pos } => {
+                        c_down = None;
                         let state = app.state_ref();
                         let (visible, rect, busy) = {
                             let icon = state.icon.lock().unwrap();
@@ -212,6 +215,8 @@ fn spawn_hook_consumer(app: AppHandle, rx: Receiver<HookEvent>, keyboard_double_
                     HookEvent::MouseUp { .. } => {}
                     HookEvent::KeyDown { vk: code, ctrl, time } => {
                         if vk::is_ctrl(code) {
+                            // A held Ctrl does not repeat once C was pressed: this is a new chord.
+                            c_down = None;
                             continue;
                         }
                         if vk::is_shift(code) {
@@ -219,10 +224,12 @@ fn spawn_hook_consumer(app: AppHandle, rx: Receiver<HookEvent>, keyboard_double_
                             continue;
                         }
                         if keyboard_double_copy && ctrl && code == vk::C {
-                            if c_down {
+                            // Repeats come every 30–400 ms, the first one after 250–1000 ms.
+                            if c_down.is_some_and(|t| time.wrapping_sub(t) < 1000) {
+                                c_down = Some(time);
                                 continue;
                             }
-                            c_down = true;
+                            c_down = Some(time);
                             match last_ctrl_c {
                                 Some((t, seq)) if time.wrapping_sub(t) <= interval_ms => {
                                     log::debug!("Ctrl+C+C ({} ms)", time.wrapping_sub(t));
@@ -259,7 +266,7 @@ fn spawn_hook_consumer(app: AppHandle, rx: Receiver<HookEvent>, keyboard_double_
                     }
                     HookEvent::KeyUp { vk: code } => {
                         if code == vk::C {
-                            c_down = false;
+                            c_down = None;
                         }
                         if vk::is_shift(code) {
                             shift = false;
