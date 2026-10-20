@@ -5,7 +5,7 @@ use std::thread;
 use std::time::Duration;
 
 use onelang_core::providers::ProviderKind;
-use onelang_core::{detect, lang, TranslateEvent, TranslateRequest, TranslationResult};
+use onelang_core::{detect, lang, CheckRequest, CheckResult, TranslateEvent, TranslateRequest, TranslationResult};
 use onelang_platform::{clipboard, input, ocr, system};
 use onelang_speech::kokoro::InstallProgress;
 use onelang_speech::{ClipSource, Engine as SpeechEngine, Voice};
@@ -18,7 +18,7 @@ use tauri_specta::Event;
 
 use crate::actions;
 use crate::db::{HistoryItem, HistoryQuery, Origin, UsageStats};
-use crate::events::{HistoryChanged, MainNavigate, MainOpenText, RegionShow, SettingsChanged};
+use crate::events::{HistoryChanged, MainCheckText, MainNavigate, MainOpenText, RegionShow, SettingsChanged};
 use crate::secrets;
 use crate::service::{self, RunOptions};
 use crate::speech;
@@ -205,7 +205,7 @@ pub async fn list_models(app: AppHandle, provider_id: String) -> Result<Vec<Stri
 pub async fn test_provider(app: AppHandle, provider_id: String) -> Result<TranslationResult, String> {
     let state = app.state_ref();
     let settings = state.settings();
-    let engine = service::build_engine(&state, &settings, Some(&provider_id))?;
+    let engine = service::build_engine(&state, &settings, Some(&provider_id), false)?;
     let target = if settings.languages.primary == "en" { "es" } else { settings.languages.primary.as_str() };
     engine
         .translate(
@@ -241,6 +241,30 @@ pub async fn translate(
     });
     let result = tokio::select! {
         r = service::run(&app, request, RunOptions { origin, app: app_exe, save_history }, emit) => r,
+        _ = cancel_rx => Err("cancelled".to_string()),
+    };
+    app.state_ref().tasks.lock().unwrap().remove(&request_id);
+    if result.is_ok() && save_history {
+        let _ = HistoryChanged.emit(&app);
+    }
+    result
+}
+
+/// Proofread a text; cancelled with `cancel_translation(request_id)`.
+#[tauri::command]
+#[specta::specta]
+pub async fn check(
+    app: AppHandle,
+    request: CheckRequest,
+    request_id: String,
+    origin: Origin,
+    app_exe: Option<String>,
+    save_history: bool,
+) -> Result<CheckResult, String> {
+    let (cancel_tx, cancel_rx) = tokio::sync::oneshot::channel::<()>();
+    app.state_ref().tasks.lock().unwrap().insert(request_id.clone(), cancel_tx);
+    let result = tokio::select! {
+        r = service::check(&app, request, RunOptions { origin, app: app_exe, save_history }) => r,
         _ = cancel_rx => Err("cancelled".to_string()),
     };
     app.state_ref().tasks.lock().unwrap().remove(&request_id);
@@ -438,6 +462,14 @@ pub fn open_in_main(app: AppHandle, text: String) {
     windows::show_main(&app);
     let _ = MainNavigate("translate".into()).emit_to(&app, windows::MAIN);
     let _ = MainOpenText { text, translate: true }.emit_to(&app, windows::MAIN);
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn open_check_in_main(app: AppHandle, text: String) {
+    windows::hide_popup(&app);
+    windows::show_main(&app);
+    let _ = MainCheckText(text).emit_to(&app, windows::MAIN);
 }
 
 /// Replace the selection in the app the popup was opened from.

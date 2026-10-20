@@ -2,9 +2,9 @@ use async_trait::async_trait;
 use futures_util::StreamExt;
 use serde_json::{json, Value};
 
-use super::{DictionaryOutput, Provider, ProviderConfig, ProviderKind, ProviderOutput, Sink, StreamPiece};
-use crate::prompt::{self, HeaderEvent, HeaderParser, Job, Target};
-use crate::types::{DictionaryEntry, Usage};
+use super::{CheckOutput, DictionaryOutput, Provider, ProviderConfig, ProviderKind, ProviderOutput, Sink, StreamPiece};
+use crate::prompt::{self, CheckJob, HeaderEvent, HeaderParser, Job, Target};
+use crate::types::{CheckIssue, DictionaryEntry, Usage};
 use crate::{Error, Result};
 
 pub struct OpenAiCompat {
@@ -69,6 +69,51 @@ impl OpenAiCompat {
         }
         body
     }
+
+    /// A non-streamed reply that must be a JSON object.
+    async fn json_reply(&self, p: prompt::Prompt, what: &str) -> Result<(Value, Usage)> {
+        let prompt_len = estimate_tokens(&p.system) + estimate_tokens(&p.user);
+        let mut body = self.body(p.system, p.user, false);
+        if self.config.kind != ProviderKind::Anthropic {
+            body["response_format"] = json!({ "type": "json_object" });
+        }
+        let resp = self.request("/chat/completions").json(&body).send().await?;
+        if !resp.status().is_success() {
+            return Err(Error::from_response(resp).await);
+        }
+        let v: Value = resp.json().await?;
+        let content = v
+            .pointer("/choices/0/message/content")
+            .and_then(Value::as_str)
+            .ok_or_else(|| Error::BadResponse("no content".into()))?;
+        let json: Value = serde_json::from_str(prompt::extract_json(content))
+            .map_err(|e| Error::BadResponse(format!("{what} JSON: {e}")))?;
+        let usage = parse_usage(&v).unwrap_or_else(|| Usage {
+            input_tokens: prompt_len,
+            output_tokens: estimate_tokens(content),
+            characters: 0,
+        });
+        Ok((json, usage))
+    }
+}
+
+/// Lenient: unknown types and severities fall back to defaults rather than dropping the issue.
+fn parse_issue(v: &Value) -> Option<CheckIssue> {
+    let field = |k: &str| v.get(k).and_then(Value::as_str).unwrap_or_default().trim().to_string();
+    let explanation = field("explanation");
+    if explanation.is_empty() {
+        return None;
+    }
+    let kind = serde_json::from_value(v.get("type").cloned().unwrap_or_default()).unwrap_or_default();
+    let severity = serde_json::from_value(v.get("severity").cloned().unwrap_or_default()).unwrap_or_default();
+    Some(CheckIssue {
+        original: field("original"),
+        correction: field("correction"),
+        kind,
+        severity,
+        explanation,
+        segments: vec![],
+    })
 }
 
 fn parse_usage(v: &Value) -> Option<Usage> {
@@ -169,22 +214,7 @@ impl Provider for OpenAiCompat {
     }
 
     async fn dictionary(&self, job: &Job) -> Result<DictionaryOutput> {
-        let p = prompt::dictionary(job);
-        let mut body = self.body(p.system, p.user, false);
-        if self.config.kind != ProviderKind::Anthropic {
-            body["response_format"] = json!({ "type": "json_object" });
-        }
-        let resp = self.request("/chat/completions").json(&body).send().await?;
-        if !resp.status().is_success() {
-            return Err(Error::from_response(resp).await);
-        }
-        let v: Value = resp.json().await?;
-        let content = v
-            .pointer("/choices/0/message/content")
-            .and_then(Value::as_str)
-            .ok_or_else(|| Error::BadResponse("no content".into()))?;
-        let json: Value = serde_json::from_str(prompt::extract_json(content))
-            .map_err(|e| Error::BadResponse(format!("dictionary JSON: {e}")))?;
+        let (json, usage) = self.json_reply(prompt::dictionary(job), "dictionary").await?;
         let entry: DictionaryEntry =
             serde_json::from_value(json.clone()).map_err(|e| Error::BadResponse(format!("dictionary JSON: {e}")))?;
         if entry.senses.is_empty() {
@@ -197,8 +227,33 @@ impl Provider for OpenAiCompat {
                 Target::Fixed(t) => Some(t.clone()),
                 _ => None,
             }),
-            usage: parse_usage(&v).unwrap_or_default(),
+            usage,
             entry,
+        })
+    }
+
+    async fn check(&self, job: &CheckJob) -> Result<CheckOutput> {
+        let (json, usage) = self.json_reply(prompt::check(job), "check").await?;
+        let mut corrected = json
+            .get("corrected")
+            .and_then(Value::as_str)
+            .filter(|c| !c.trim().is_empty())
+            .ok_or_else(|| Error::BadResponse("check has no corrected text".into()))?
+            .to_string();
+        if !job.text.ends_with('\n') {
+            let trimmed = corrected.trim_end().len();
+            corrected.truncate(trimmed);
+        }
+        let issues = json
+            .get("issues")
+            .and_then(Value::as_array)
+            .map(|a| a.iter().filter_map(parse_issue).collect())
+            .unwrap_or_default();
+        Ok(CheckOutput {
+            corrected,
+            lang: json.get("lang").and_then(Value::as_str).map(crate::lang::normalize),
+            issues,
+            usage,
         })
     }
 

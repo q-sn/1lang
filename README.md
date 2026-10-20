@@ -30,6 +30,8 @@ DeepL's desktop app made quick translation feel effortless, but it's closed, the
 
 **Translate text from the screen.** Press `Ctrl+Alt+O` and drag over any part of the screen: an image, a video, a game, a scanned PDF. Text recognition uses the OCR built into Windows, so nothing extra to install.
 
+**Check what you wrote in a language you're learning.** Write a message in English, German or any other language, select it and press `Ctrl+Alt+G`, or use the Check tab. The AI corrects the text and explains each mistake in your own language, including the ones that come from translating word for word. Keep or undo every edit, then replace the original with one click. Choose how strict it is: mistakes only, mistakes and naturalness, or a full rewrite the way a native speaker would put it. This needs an AI model; DeepL and Google can only translate.
+
 **A dictionary for single words.** Look up one word and you get its meanings, transcription and example sentences instead of a single bare translation.
 
 **A full translator window.** Type or paste text, translate as you type, pick the tone, swap languages, and go back to anything in your history.
@@ -62,6 +64,7 @@ You can enable several at once. If one fails or hits a limit, the next one takes
 | `Ctrl+Alt+T` | Translate selected text |
 | `Ctrl+C` `C` | Translate what you just copied |
 | `Ctrl+Alt+R` | Replace selected text with its translation |
+| `Ctrl+Alt+G` | Check selected text you wrote |
 | `Ctrl+Alt+O` | Translate an area of the screen |
 | `Ctrl+Alt+L` | Open the translator window |
 
@@ -76,6 +79,9 @@ Yes. The app is free and open source under the MIT license. Translation itself i
 
 **How is it different from DeepL?**
 It works the same way (select text, get a translation in a popup, Ctrl+C+C), but you choose the engine, it's open source, it has OCR for text on the screen, a dictionary for single words, and it can replace the text you selected with the translation.
+
+**How is the writing check different from Grammarly or DeepL Write?**
+They mostly correct the text. 1lang is made for learners: every correction comes with a short explanation in your native language, mistakes and stylistic suggestions are marked apart, and it works for any language your AI model knows.
 
 **Which languages are supported?**
 37 languages, including English, Spanish, Russian, German, French, Portuguese, Italian, Ukrainian, Polish, Turkish, Chinese, Japanese and Korean. The interface is available in English, Russian and Spanish.

@@ -27,6 +27,9 @@ pub struct PopupPayload {
     pub can_replace: bool,
     /// Message to show instead of a translation (e.g. "nothing selected").
     pub notice: Option<String>,
+    /// Proofread the text instead of translating it.
+    #[serde(default)]
+    pub check: bool,
 }
 
 #[derive(Default)]

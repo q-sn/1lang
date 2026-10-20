@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use onelang_core::providers::{ProviderConfig, ProviderKind};
-use onelang_core::{lang, DetectionMode, Formality};
+use onelang_core::{lang, CheckLevel, DetectionMode, Formality};
 use onelang_platform::SelectionMethod;
 use onelang_speech::Engine as SpeechEngine;
 use serde::{Deserialize, Serialize};
@@ -153,6 +153,13 @@ impl Default for TranslationSettings {
     }
 }
 
+#[derive(Serialize, Deserialize, Type, Clone, Debug, PartialEq, Default)]
+#[serde(default)]
+pub struct CheckSettings {
+    /// Preselected strictness of a writing check.
+    pub default_level: CheckLevel,
+}
+
 #[derive(Serialize, Deserialize, Type, Clone, Debug, PartialEq)]
 #[serde(default)]
 pub struct SelectionSettings {
@@ -204,6 +211,7 @@ pub struct HotkeySettings {
     pub replace_selection: String,
     pub ocr_region: String,
     pub translate_clipboard: String,
+    pub check_selection: String,
     pub open_main: String,
 }
 
@@ -214,6 +222,7 @@ impl Default for HotkeySettings {
             replace_selection: "Ctrl+Alt+KeyR".into(),
             ocr_region: "Ctrl+Alt+KeyO".into(),
             translate_clipboard: String::new(),
+            check_selection: "Ctrl+Alt+KeyG".into(),
             open_main: "Ctrl+Alt+KeyL".into(),
         }
     }
@@ -309,6 +318,7 @@ pub struct Settings {
     /// Fallback chain: enabled providers are tried in this order.
     pub providers: Vec<ProviderConfig>,
     pub translation: TranslationSettings,
+    pub check: CheckSettings,
     pub selection: SelectionSettings,
     pub hotkeys: HotkeySettings,
     pub popup: PopupSettings,
@@ -330,6 +340,7 @@ impl Default for Settings {
                 ProviderConfig { enabled: false, ..ProviderConfig::new("deepl", ProviderKind::Deepl) },
             ],
             translation: Default::default(),
+            check: Default::default(),
             selection: Default::default(),
             hotkeys: Default::default(),
             popup: Default::default(),

@@ -2,26 +2,31 @@
 import { onMounted, ref, type Component } from 'vue';
 import { TooltipProvider } from 'reka-ui';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { History, Languages, Minus, Settings, Square, Copy, X } from '@lucide/vue';
+import { History, Languages, Minus, Settings, SpellCheck, Square, Copy, X } from '@lucide/vue';
 import { useI18n } from 'vue-i18n';
 import { events } from '@/lib/api';
 import { autoSaveSettings } from '@/lib/settings';
+import { mainView as view, navigate, openCheck, type MainView } from '@/lib/nav';
 import { dragWindow } from '@/lib/window-drag';
 import Wordmark from '@/ui/Wordmark.vue';
 import ResizeHandles from '@/ui/ResizeHandles.vue';
 import TranslateView from './TranslateView.vue';
+import CheckView from './CheckView.vue';
 import HistoryView from './HistoryView.vue';
 import SettingsView from './settings/SettingsView.vue';
 
-type View = 'translate' | 'history' | 'settings';
-
 const { t } = useI18n();
 const win = getCurrentWindow();
-const view = ref<View>('translate');
 const maximized = ref(false);
-const views: Record<View, Component> = { translate: TranslateView, history: HistoryView, settings: SettingsView };
-const nav: { id: View; icon: Component }[] = [
+const views: Record<MainView, Component> = {
+  translate: TranslateView,
+  check: CheckView,
+  history: HistoryView,
+  settings: SettingsView,
+};
+const nav: { id: MainView; icon: Component }[] = [
   { id: 'translate', icon: Languages },
+  { id: 'check', icon: SpellCheck },
   { id: 'history', icon: History },
   { id: 'settings', icon: Settings },
 ];
@@ -29,9 +34,8 @@ const nav: { id: View; icon: Component }[] = [
 autoSaveSettings();
 
 onMounted(async () => {
-  events.mainNavigate.listen((e) => {
-    if (e.payload in views) view.value = e.payload as View;
-  });
+  events.mainNavigate.listen((e) => navigate(e.payload));
+  events.mainCheckText.listen((e) => openCheck(e.payload));
   maximized.value = await win.isMaximized();
   await win.onResized(async () => (maximized.value = await win.isMaximized()));
 });
@@ -93,7 +97,7 @@ onMounted(async () => {
       </header>
 
       <!-- Scrollable views (history, settings) run to the window edge; the translator keeps a margin. -->
-      <main :class="['min-h-0 flex-1 pl-5', view === 'translate' && 'pb-5 pr-5']">
+      <main :class="['min-h-0 flex-1 pl-5', (view === 'translate' || view === 'check') && 'pb-5 pr-5']">
         <KeepAlive>
           <component :is="views[view]" />
         </KeepAlive>

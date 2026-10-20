@@ -3,7 +3,8 @@
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use onelang_core::{DictionaryEntry, TranslationResult};
+use onelang_core::{CheckResult, DictionaryEntry, TranslationResult, Usage};
+use serde::de::DeserializeOwned;
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -51,6 +52,8 @@ pub struct HistoryItem {
     pub source_text: String,
     pub result_text: String,
     pub dictionary: Option<DictionaryEntry>,
+    /// Set for writing checks; `result_text` is then the corrected text.
+    pub check: Option<CheckResult>,
     pub source_lang: Option<String>,
     pub target_lang: String,
     pub provider_name: String,
@@ -136,6 +139,12 @@ impl Db {
                 PRIMARY KEY (day, provider_id)
              );",
         )?;
+        let has_check: bool = conn
+            .prepare("SELECT 1 FROM pragma_table_info('history') WHERE name = 'check_result'")?
+            .exists([])?;
+        if !has_check {
+            conn.execute("ALTER TABLE history ADD COLUMN check_result TEXT", [])?;
+        }
         Ok(Db { conn })
     }
 
@@ -149,7 +158,8 @@ impl Db {
     ) -> rusqlite::Result<i64> {
         // Re-translating the same text moves it to the top instead of duplicating it.
         self.conn.execute(
-            "DELETE FROM history WHERE source_text = ?1 AND target_lang = ?2 AND favorite = 0",
+            "DELETE FROM history
+             WHERE source_text = ?1 AND target_lang = ?2 AND favorite = 0 AND check_result IS NULL",
             params![source, r.target_lang],
         )?;
         self.conn.execute(
@@ -171,35 +181,76 @@ impl Db {
             ],
         )?;
         let id = self.conn.last_insert_rowid();
+        self.trim_history(limit)?;
+        Ok(id)
+    }
+
+    pub fn add_check_history(
+        &self,
+        r: &CheckResult,
+        origin: Origin,
+        app: Option<&str>,
+        limit: u32,
+    ) -> rusqlite::Result<i64> {
+        self.conn.execute(
+            "DELETE FROM history WHERE source_text = ?1 AND favorite = 0 AND check_result IS NOT NULL",
+            params![r.text],
+        )?;
+        self.conn.execute(
+            "INSERT INTO history (created_at, source_text, result_text, check_result, source_lang, target_lang,
+                                  provider_name, model, cost_usd, origin, app)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            params![
+                now_ms(),
+                r.text,
+                r.corrected,
+                serde_json::to_string(r).ok(),
+                r.lang,
+                r.lang.clone().unwrap_or_default(),
+                r.provider_name,
+                r.model,
+                r.cost_usd,
+                origin.as_str(),
+                app,
+            ],
+        )?;
+        let id = self.conn.last_insert_rowid();
+        self.trim_history(limit)?;
+        Ok(id)
+    }
+
+    fn trim_history(&self, limit: u32) -> rusqlite::Result<()> {
         self.conn.execute(
             "DELETE FROM history WHERE favorite = 0 AND id NOT IN
                (SELECT id FROM history ORDER BY created_at DESC LIMIT ?1)",
             params![limit.max(100)],
         )?;
-        Ok(id)
+        Ok(())
     }
 
     pub fn list_history(&self, q: &HistoryQuery) -> rusqlite::Result<Vec<HistoryItem>> {
         let search = q.search.as_deref().map(str::trim).filter(|s| !s.is_empty()).map(|s| format!("%{s}%"));
         let mut stmt = self.conn.prepare(
             "SELECT id, created_at, source_text, result_text, dictionary, source_lang, target_lang,
-                    provider_name, model, cost_usd, origin, app, favorite
+                    provider_name, model, cost_usd, origin, app, favorite, check_result
              FROM history
              WHERE (?1 IS NULL OR source_text LIKE ?1 OR result_text LIKE ?1)
                AND (?2 = 0 OR favorite = 1)
-             ORDER BY created_at DESC LIMIT ?3 OFFSET ?4",
+             ORDER BY created_at DESC, id DESC LIMIT ?3 OFFSET ?4",
         )?;
         let rows = stmt.query_map(
             params![search, q.favorites_only as i32, if q.limit == 0 { 100 } else { q.limit }, q.offset],
             |row| {
                 let dict: Option<String> = row.get(4)?;
                 let origin: String = row.get(10)?;
+                let check: Option<String> = row.get(13)?;
                 Ok(HistoryItem {
                     id: row.get(0)?,
                     created_at: row.get::<_, i64>(1)? as f64,
                     source_text: row.get(2)?,
                     result_text: row.get(3)?,
                     dictionary: dict.and_then(|d| serde_json::from_str(&d).ok()),
+                    check: check.and_then(|c| serde_json::from_str(&c).ok()),
                     source_lang: row.get(5)?,
                     target_lang: row.get(6)?,
                     provider_name: row.get(7)?,
@@ -233,7 +284,7 @@ impl Db {
         Ok(())
     }
 
-    pub fn cache_get(&self, key: &str, max_age_ms: i64) -> Option<TranslationResult> {
+    pub fn cache_get<T: DeserializeOwned>(&self, key: &str, max_age_ms: i64) -> Option<T> {
         let row: Option<(String, i64)> = self
             .conn
             .query_row("SELECT result, created_at FROM cache WHERE key = ?1", params![key], |r| {
@@ -249,7 +300,7 @@ impl Db {
         serde_json::from_str(&json).ok()
     }
 
-    pub fn cache_put(&self, key: &str, r: &TranslationResult) -> rusqlite::Result<()> {
+    pub fn cache_put<T: Serialize>(&self, key: &str, r: &T) -> rusqlite::Result<()> {
         let json = serde_json::to_string(r).unwrap_or_default();
         self.conn.execute(
             "INSERT OR REPLACE INTO cache (key, result, created_at) VALUES (?1, ?2, ?3)",
@@ -268,7 +319,13 @@ impl Db {
         Ok(())
     }
 
-    pub fn record_usage(&self, r: &TranslationResult) -> rusqlite::Result<()> {
+    pub fn record_usage(
+        &self,
+        provider_id: &str,
+        provider_name: &str,
+        usage: &Usage,
+        cost_usd: Option<f64>,
+    ) -> rusqlite::Result<()> {
         self.conn.execute(
             &format!(
                 "INSERT INTO usage (day, provider_id, provider_name, requests, input_tokens, output_tokens, characters, cost_usd)
@@ -282,12 +339,12 @@ impl Db {
                     cost_usd = cost_usd + excluded.cost_usd"
             ),
             params![
-                r.provider_id,
-                r.provider_name,
-                r.usage.input_tokens,
-                r.usage.output_tokens,
-                r.usage.characters,
-                r.cost_usd.unwrap_or(0.0)
+                provider_id,
+                provider_name,
+                usage.input_tokens,
+                usage.output_tokens,
+                usage.characters,
+                cost_usd.unwrap_or(0.0)
             ],
         )?;
         Ok(())
@@ -337,4 +394,41 @@ pub fn cache_key(parts: &[&str]) -> String {
         }
     }
     format!("{h:016x}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_db() -> Db {
+        let path = std::env::temp_dir().join(format!("1lang-test-{}-{}.db", std::process::id(), now_ms()));
+        Db::open(&path).unwrap()
+    }
+
+    #[test]
+    fn checks_and_translations_share_history() {
+        let db = temp_db();
+        let tr = TranslationResult { text: "Hi".into(), target_lang: "en".into(), ..Default::default() };
+        db.add_history("Привет", &tr, Origin::Main, None, 100).unwrap();
+        let check = CheckResult {
+            text: "I has".into(),
+            corrected: "I have".into(),
+            lang: Some("en".into()),
+            ..Default::default()
+        };
+        db.add_check_history(&check, Origin::Selection, None, 100).unwrap();
+        db.add_check_history(&check, Origin::Selection, None, 100).unwrap();
+
+        let items = db.list_history(&HistoryQuery::default()).unwrap();
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0].result_text, "I have");
+        assert_eq!(items[0].check.as_ref().map(|c| c.corrected.as_str()), Some("I have"));
+        assert!(items[1].check.is_none());
+
+        let cached: Option<CheckResult> = {
+            db.cache_put("k", &check).unwrap();
+            db.cache_get("k", 1000)
+        };
+        assert_eq!(cached.map(|c| c.corrected), Some("I have".into()));
+    }
 }

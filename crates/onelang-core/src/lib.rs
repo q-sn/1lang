@@ -5,6 +5,7 @@
 //! callback. Everything here can be unit-tested and reused (CLI, server, …).
 
 pub mod detect;
+pub mod diff;
 pub mod engine;
 pub mod error;
 pub mod lang;

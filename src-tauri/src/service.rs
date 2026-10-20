@@ -5,7 +5,10 @@ use std::sync::Arc;
 
 use onelang_core::engine::EngineOptions;
 use onelang_core::providers::{self, Provider};
-use onelang_core::{Engine, Error as CoreError, LanguagePair, TranslateEvent, TranslateRequest, TranslationResult};
+use onelang_core::{
+    CheckRequest, CheckResult, Engine, Error as CoreError, LanguagePair, TranslateEvent, TranslateRequest,
+    TranslationResult,
+};
 use tauri::AppHandle;
 
 use crate::db::{cache_key, Origin};
@@ -25,7 +28,13 @@ pub fn build_provider(state: &AppState, settings: &Settings, id: &str) -> Result
     providers::build(cfg, secrets::get(id), state.http.clone()).map_err(|e| e.to_string())
 }
 
-pub fn build_engine(state: &AppState, settings: &Settings, only: Option<&str>) -> Result<Engine, String> {
+/// `llm_only`: skip machine translation, so a missing LLM key is reported instead of "no LLM".
+pub fn build_engine(
+    state: &AppState,
+    settings: &Settings,
+    only: Option<&str>,
+    llm_only: bool,
+) -> Result<Engine, String> {
     let mut list: Vec<Arc<dyn Provider>> = vec![];
     let mut skipped: Vec<String> = vec![];
     for cfg in &settings.providers {
@@ -33,7 +42,7 @@ pub fn build_engine(state: &AppState, settings: &Settings, only: Option<&str>) -
             Some(id) => cfg.id == id,
             None => cfg.enabled,
         };
-        if !wanted {
+        if !wanted || llm_only && !cfg.kind.is_llm() {
             continue;
         }
         match providers::build(cfg.clone(), secrets::get(&cfg.id), state.http.clone()) {
@@ -45,7 +54,8 @@ pub fn build_engine(state: &AppState, settings: &Settings, only: Option<&str>) -
         }
     }
     if list.is_empty() {
-        return Err(skipped.into_iter().next().unwrap_or_else(|| CoreError::NoProviders.to_string()));
+        let none = if llm_only { CoreError::NoLlmProvider } else { CoreError::NoProviders };
+        return Err(skipped.into_iter().next().unwrap_or_else(|| none.to_string()));
     }
     let custom = settings.translation.custom_instructions.trim();
     Ok(Engine::new(
@@ -109,7 +119,7 @@ pub async fn run(
 
     let key = request_cache_key(&settings, &req);
     if settings.translation.cache {
-        let cached = state.db.lock().unwrap().cache_get(&key, CACHE_TTL_MS);
+        let cached: Option<TranslationResult> = state.db.lock().unwrap().cache_get(&key, CACHE_TTL_MS);
         if let Some(mut r) = cached {
             r.cached = true;
             r.elapsed_ms = 0;
@@ -128,7 +138,7 @@ pub async fn run(
         }
     }
 
-    let engine = match build_engine(&state, &settings, req.provider_id.as_deref()) {
+    let engine = match build_engine(&state, &settings, req.provider_id.as_deref(), false) {
         Ok(e) => e,
         Err(e) => {
             emit(TranslateEvent::Error { message: e.clone() });
@@ -140,7 +150,7 @@ pub async fn run(
         Ok(r) => {
             {
                 let db = state.db.lock().unwrap();
-                if let Err(e) = db.record_usage(&r) {
+                if let Err(e) = db.record_usage(&r.provider_id, &r.provider_name, &r.usage, r.cost_usd) {
                     log::warn!("usage: {e}");
                 }
                 if settings.translation.cache {
@@ -156,6 +166,72 @@ pub async fn run(
             emit(TranslateEvent::Error { message: msg.clone() });
             Err(msg)
         }
+    }
+}
+
+fn check_cache_key(settings: &Settings, req: &CheckRequest) -> String {
+    let chain: Vec<String> = settings
+        .providers
+        .iter()
+        .filter(|p| p.kind.is_llm())
+        .filter(|p| match &req.provider_id {
+            Some(id) => &p.id == id,
+            None => p.enabled,
+        })
+        .map(|p| format!("{}:{}", p.id, p.model().unwrap_or_default()))
+        .collect();
+    cache_key(&[
+        "check",
+        &chain.join(","),
+        &req.text,
+        &format!("{:?}", req.level),
+        req.explain_lang.as_deref().unwrap_or(&settings.languages.primary),
+        req.context.as_deref().unwrap_or(""),
+    ])
+}
+
+/// Proofread a text: cache, the LLM part of the chain, usage and history.
+pub async fn check(app: &AppHandle, mut req: CheckRequest, opts: RunOptions) -> Result<CheckResult, String> {
+    let state = app.state_ref();
+    let settings = state.settings();
+    if !settings.translation.use_context {
+        req.context = None;
+    }
+
+    let key = check_cache_key(&settings, &req);
+    if settings.translation.cache {
+        let cached: Option<CheckResult> = state.db.lock().unwrap().cache_get(&key, CACHE_TTL_MS);
+        if let Some(mut r) = cached {
+            r.cached = true;
+            r.elapsed_ms = 0;
+            r.cost_usd = Some(0.0);
+            save_check_history(&state, &settings, &r, &opts);
+            return Ok(r);
+        }
+    }
+
+    let engine = build_engine(&state, &settings, req.provider_id.as_deref(), true)?;
+    let r = engine.check(req).await.map_err(|e| e.to_string())?;
+    {
+        let db = state.db.lock().unwrap();
+        if let Err(e) = db.record_usage(&r.provider_id, &r.provider_name, &r.usage, r.cost_usd) {
+            log::warn!("usage: {e}");
+        }
+        if settings.translation.cache {
+            let _ = db.cache_put(&key, &r);
+        }
+    }
+    save_check_history(&state, &settings, &r, &opts);
+    Ok(r)
+}
+
+fn save_check_history(state: &AppState, settings: &Settings, r: &CheckResult, opts: &RunOptions) {
+    if !opts.save_history || !settings.translation.history {
+        return;
+    }
+    let db = state.db.lock().unwrap();
+    if let Err(e) = db.add_check_history(r, opts.origin, opts.app.as_deref(), settings.translation.history_limit) {
+        log::warn!("history: {e}");
     }
 }
 

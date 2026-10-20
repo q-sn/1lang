@@ -19,6 +19,8 @@ export const commands = {
 	listModels: (providerId: string) => typedError<string[], string>(__TAURI_INVOKE("list_models", { providerId })),
 	testProvider: (providerId: string) => typedError<TranslationResult, string>(__TAURI_INVOKE("test_provider", { providerId })),
 	translate: (request: TranslateRequest, requestId: string, origin: Origin, appExe: string | null, saveHistory: boolean, onEvent: Channel<TranslateEvent>) => typedError<TranslationResult, string>(__TAURI_INVOKE("translate", { request, requestId, origin, appExe, saveHistory, onEvent })),
+	/**  Proofread a text; cancelled with `cancel_translation(request_id)`. */
+	check: (request: CheckRequest, requestId: string, origin: Origin, appExe: string | null, saveHistory: boolean) => typedError<CheckResult, string>(__TAURI_INVOKE("check", { request, requestId, origin, appExe, saveHistory })),
 	cancelTranslation: (requestId: string) => __TAURI_INVOKE<void>("cancel_translation", { requestId }),
 	detectLanguage: (text: string) => __TAURI_INVOKE<string | null>("detect_language", { text }),
 	historyList: (query: HistoryQuery) => typedError<HistoryItem[], string>(__TAURI_INVOKE("history_list", { query })),
@@ -50,10 +52,13 @@ export const commands = {
 	can_replace: boolean,
 	/**  Message to show instead of a translation (e.g. "nothing selected"). */
 	notice: string | null,
+	/**  Proofread the text instead of translating it. */
+	check?: boolean,
 } | null>("popup_take_pending"),
 	popupSetPinned: (pinned: boolean) => __TAURI_INVOKE<void>("popup_set_pinned", { pinned }),
 	popupHide: () => __TAURI_INVOKE<void>("popup_hide"),
 	openInMain: (text: string) => __TAURI_INVOKE<void>("open_in_main", { text }),
+	openCheckInMain: (text: string) => __TAURI_INVOKE<void>("open_check_in_main", { text }),
 	/**  Replace the selection in the app the popup was opened from. */
 	replaceWith: (text: string) => typedError<null, string>(__TAURI_INVOKE("replace_with", { text })),
 	copyText: (text: string) => typedError<null, string>(__TAURI_INVOKE("copy_text", { text })),
@@ -81,6 +86,7 @@ export const commands = {
 export const events = {
 	historyChanged: makeEvent<HistoryChanged>("history-changed"),
 	iconBusy: makeEvent<IconBusy>("icon-busy"),
+	mainCheckText: makeEvent<MainCheckText>("main-check-text"),
 	mainNavigate: makeEvent<MainNavigate>("main-navigate"),
 	mainOpenText: makeEvent<MainOpenText>("main-open-text"),
 	popupHidden: makeEvent<PopupHidden>("popup-hidden"),
@@ -104,6 +110,68 @@ export type AppInfo = {
 	snipping_ocr: boolean,
 	accent_colors: string[],
 	languages: string[],
+};
+
+export type CheckIssue = {
+	/**  Fragment of the checked text. */
+	original: string,
+	correction: string,
+	kind: IssueKind,
+	severity: Severity,
+	explanation: string,
+	/**  Indexes of the `CheckResult::segments` this issue explains. */
+	segments?: number[],
+};
+
+/**  How much a writing check is allowed to change. */
+export type CheckLevel = 
+/**  Only clear mistakes: grammar, spelling, punctuation, wrong words. */
+"errors" | 
+/**  Mistakes plus phrasing a native speaker would not use. */
+"natural" | 
+/**  Rewrite the text as a fluent native speaker would. */
+"rewrite";
+
+export type CheckRequest = {
+	text: string,
+	level?: CheckLevel,
+	/**  Language of the explanations; `None` = the primary language of the pair. */
+	explain_lang: string | null,
+	/**  Surrounding text that helps to understand the passage; never checked itself. */
+	context: string | null,
+	/**  Use only this provider (otherwise the LLM providers of the fallback chain). */
+	provider_id: string | null,
+};
+
+export type CheckResult = {
+	text: string,
+	corrected: string,
+	/**  Language of the checked text. */
+	lang: string | null,
+	explain_lang: string,
+	level: CheckLevel,
+	/**  The text as unchanged pieces and edits: their `original` parts join into `text`, `corrected` parts into `corrected`. */
+	segments: CheckSegment[],
+	/**  In the order they appear in the text. */
+	issues: CheckIssue[],
+	provider_id: string,
+	provider_name: string,
+	model: string | null,
+	usage: Usage,
+	cost_usd: number | null,
+	cached: boolean,
+	elapsed_ms: number,
+};
+
+/**  A piece of the checked text: unchanged (`original == corrected`) or an edit. */
+export type CheckSegment = {
+	original: string,
+	corrected: string,
+};
+
+export type CheckSettings = {
+	/**  Preselected strictness of a writing check. */
+	default_level?: CheckLevel,
 };
 
 /**  Where a clip came from, shown to the user. */
@@ -190,6 +258,8 @@ export type HistoryItem = {
 	source_text: string,
 	result_text: string,
 	dictionary: DictionaryEntry | null,
+	/**  Set for writing checks; `result_text` is then the corrected text. */
+	check: CheckResult | null,
 	source_lang: string | null,
 	target_lang: string,
 	provider_name: string,
@@ -213,6 +283,7 @@ export type HotkeySettings = {
 	replace_selection?: string,
 	ocr_region?: string,
 	translate_clipboard?: string,
+	check_selection?: string,
 	open_main?: string,
 };
 
@@ -226,6 +297,8 @@ export type InstallProgress = {
 };
 
 export type InstallStage = "model" | "voices" | "phonemizer";
+
+export type IssueKind = "grammar" | "spelling" | "punctuation" | "word_choice" | "style";
 
 export type KeyStatus = {
 	id: string,
@@ -249,6 +322,9 @@ export type LanguageSettings = {
 	favorites?: string[],
 	detection?: DetectionMode,
 };
+
+/**  Put text into the check view and proofread it. */
+export type MainCheckText = string;
 
 /**  Switch the main window to a view ("translate" | "history" | "settings"). */
 export type MainNavigate = string;
@@ -296,6 +372,8 @@ export type PopupPayload = {
 	can_replace: boolean,
 	/**  Message to show instead of a translation (e.g. "nothing selected"). */
 	notice: string | null,
+	/**  Proofread the text instead of translating it. */
+	check?: boolean,
 };
 
 export type PopupPlacement = "selection" | "cursor" | 
@@ -409,6 +487,7 @@ export type Settings = {
 	/**  Fallback chain: enabled providers are tried in this order. */
 	providers?: ProviderConfig[],
 	translation?: TranslationSettings,
+	check?: CheckSettings,
 	selection?: SelectionSettings,
 	hotkeys?: HotkeySettings,
 	popup?: PopupSettings,
@@ -424,6 +503,12 @@ export type SettingsUpdate = {
 	settings: Settings,
 	warnings: string[],
 };
+
+export type Severity = 
+/**  The text is wrong. */
+"error" | 
+/**  The text is correct, but a native speaker would put it differently. */
+"suggestion";
 
 export type SpeakRequest = {
 	text: string,

@@ -15,8 +15,8 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
-use crate::prompt::Job;
-use crate::types::{DictionaryEntry, Usage};
+use crate::prompt::{CheckJob, Job};
+use crate::types::{CheckIssue, DictionaryEntry, Usage};
 use crate::{Error, Result};
 
 #[derive(Serialize, Deserialize, Type, Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -260,6 +260,15 @@ pub struct DictionaryOutput {
     pub usage: Usage,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct CheckOutput {
+    pub corrected: String,
+    pub lang: Option<String>,
+    /// `segments` are not filled yet: the engine links them.
+    pub issues: Vec<CheckIssue>,
+    pub usage: Usage,
+}
+
 #[async_trait]
 pub trait Provider: Send + Sync {
     fn config(&self) -> &ProviderConfig;
@@ -272,6 +281,11 @@ pub trait Provider: Send + Sync {
     async fn translate(&self, job: &Job, sink: Sink<'_>) -> Result<ProviderOutput>;
 
     async fn dictionary(&self, _job: &Job) -> Result<DictionaryOutput> {
+        Err(Error::Unsupported)
+    }
+
+    /// Proofread a text written by a learner (LLM providers only).
+    async fn check(&self, _job: &CheckJob) -> Result<CheckOutput> {
         Err(Error::Unsupported)
     }
 

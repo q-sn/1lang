@@ -30,11 +30,12 @@ pub fn register_hotkeys(app: &AppHandle, s: &Settings) -> Vec<String> {
     let gs = app.global_shortcut();
     let _ = gs.unregister_all();
     let mut problems = vec![];
-    let bindings: [(&str, Action); 5] = [
+    let bindings: [(&str, Action); 6] = [
         (&s.hotkeys.translate_selection, actions::translate_selection),
         (&s.hotkeys.replace_selection, actions::replace_selection),
         (&s.hotkeys.ocr_region, actions::start_ocr),
         (&s.hotkeys.translate_clipboard, |app| actions::translate_clipboard(app, false)),
+        (&s.hotkeys.check_selection, actions::check_selection),
         (&s.hotkeys.open_main, |app| windows::show_main(&app)),
     ];
     for (accel, action) in bindings {

@@ -151,3 +151,97 @@ pub enum TranslateEvent {
     Done { result: Box<TranslationResult> },
     Error { message: String },
 }
+
+/// How much a writing check is allowed to change.
+#[derive(Serialize, Deserialize, Type, Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum CheckLevel {
+    /// Only clear mistakes: grammar, spelling, punctuation, wrong words.
+    Errors,
+    /// Mistakes plus phrasing a native speaker would not use.
+    #[default]
+    Natural,
+    /// Rewrite the text as a fluent native speaker would.
+    Rewrite,
+}
+
+#[derive(Serialize, Deserialize, Type, Clone, Debug, Default)]
+pub struct CheckRequest {
+    pub text: String,
+    #[serde(default)]
+    pub level: CheckLevel,
+    /// Language of the explanations; `None` = the primary language of the pair.
+    pub explain_lang: Option<String>,
+    /// Surrounding text that helps to understand the passage; never checked itself.
+    pub context: Option<String>,
+    /// Use only this provider (otherwise the LLM providers of the fallback chain).
+    pub provider_id: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Type, Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum IssueKind {
+    #[default]
+    Grammar,
+    Spelling,
+    Punctuation,
+    WordChoice,
+    Style,
+}
+
+#[derive(Serialize, Deserialize, Type, Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum Severity {
+    /// The text is wrong.
+    #[default]
+    Error,
+    /// The text is correct, but a native speaker would put it differently.
+    Suggestion,
+}
+
+#[derive(Serialize, Deserialize, Type, Clone, Debug, Default, PartialEq)]
+pub struct CheckIssue {
+    /// Fragment of the checked text.
+    pub original: String,
+    pub correction: String,
+    pub kind: IssueKind,
+    pub severity: Severity,
+    pub explanation: String,
+    /// Indexes of the `CheckResult::segments` this issue explains.
+    #[serde(default)]
+    pub segments: Vec<u32>,
+}
+
+/// A piece of the checked text: unchanged (`original == corrected`) or an edit.
+#[derive(Serialize, Deserialize, Type, Clone, Debug, Default, PartialEq)]
+pub struct CheckSegment {
+    pub original: String,
+    pub corrected: String,
+}
+
+impl CheckSegment {
+    pub fn is_edit(&self) -> bool {
+        self.original != self.corrected
+    }
+}
+
+#[derive(Serialize, Deserialize, Type, Clone, Debug, Default)]
+pub struct CheckResult {
+    pub text: String,
+    pub corrected: String,
+    /// Language of the checked text.
+    pub lang: Option<String>,
+    pub explain_lang: String,
+    pub level: CheckLevel,
+    /// The text as unchanged pieces and edits: their `original` parts join into `text`, `corrected` parts into `corrected`.
+    pub segments: Vec<CheckSegment>,
+    /// In the order they appear in the text.
+    pub issues: Vec<CheckIssue>,
+    pub provider_id: String,
+    pub provider_name: String,
+    pub model: Option<String>,
+    pub usage: Usage,
+    pub cost_usd: Option<f64>,
+    pub cached: bool,
+    pub elapsed_ms: u32,
+}

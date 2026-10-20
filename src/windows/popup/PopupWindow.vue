@@ -19,15 +19,20 @@ import {
   PinOff,
   Replace,
   Settings,
+  Sparkles,
+  SpellCheck,
   X,
 } from '@lucide/vue';
 import { useI18n } from 'vue-i18n';
-import { commands, events, type PopupPayload } from '@/lib/api';
+import { commands, events, type CheckLevel, type PopupPayload } from '@/lib/api';
+import { useChecker, useLlmProviders } from '@/lib/checker';
 import { useLanguages } from '@/lib/langs';
 import { useTranslator } from '@/lib/translator';
 import { stopSpeech } from '@/lib/speech';
 import { useSettings } from '@/lib/settings';
 import Button from '@/ui/Button.vue';
+import CheckResultView from '@/ui/CheckResultView.vue';
+import Select from '@/ui/Select.vue';
 import DictionaryCard from '@/ui/DictionaryCard.vue';
 import LanguagePicker from '@/ui/LanguagePicker.vue';
 import SourceWord from '@/ui/SourceWord.vue';
@@ -42,6 +47,14 @@ const { t } = useI18n();
 const { name } = useLanguages();
 const { settings } = useSettings();
 const { state, run, reset } = useTranslator();
+const checker = useChecker();
+const llms = useLlmProviders();
+const level = ref<CheckLevel>('natural');
+const levelOptions = computed(() =>
+  (['errors', 'natural', 'rewrite'] as const).map((v) => ({ value: v, label: t(`check.level.${v}`) })),
+);
+/** The popup proofreads instead of translating. */
+const isCheck = computed(() => !!payload.value?.check);
 
 const payload = ref<PopupPayload | null>(null);
 const source = ref('');
@@ -62,9 +75,14 @@ const autosize = usePopupAutosize(rootEl, scrollerEl, contentEl, [
   () => payload.value?.id,
   editing,
   expandedSource,
-], () => popupWidth(Math.max(source.value.length, state.text.length), settings.value.popup.width),
+  () => checker.state.status,
+  () => checker.state.result,
+], () =>
+  isCheck.value
+    ? popupWidth(Number.MAX_SAFE_INTEGER, settings.value.popup.width)
+    : popupWidth(Math.max(source.value.length, state.text.length), settings.value.popup.width),
   // Shrinking to the spinner and growing back to the result makes the window jump.
-  () => state.status === 'loading' && !state.text);
+  () => (state.status === 'loading' && !state.text) || checker.state.status === 'loading');
 
 function show(p: PopupPayload) {
   payload.value = p;
@@ -75,9 +93,11 @@ function show(p: PopupPayload) {
   copied.value = false;
   if (settings.value.popup.always_pinned) pinned.value = true;
   reset();
+  checker.reset();
+  level.value = settings.value.check.default_level;
   stopSpeech();
   editing.value = !p.text;
-  if (p.translate && p.text.trim()) translate();
+  if (p.translate && p.text.trim()) submit();
   else if (editing.value) nextTick(() => editor.value?.focus());
 }
 
@@ -94,14 +114,39 @@ async function translate() {
   });
 }
 
+async function check() {
+  if (!payload.value || !source.value.trim() || !llms.value.length) return;
+  editing.value = false;
+  await checker.run({
+    text: source.value,
+    level: level.value,
+    context: payload.value.context,
+    origin: payload.value.origin,
+    appExe: payload.value.app,
+  });
+}
+
+function submit() {
+  if (isCheck.value) check();
+  else translate();
+}
+
+function relevel(l: CheckLevel) {
+  level.value = l;
+  if (checker.state.status !== 'idle') check();
+}
+
+/** What Copy and Replace use. */
+const output = computed(() => (isCheck.value ? checker.finalText.value : state.text));
+
 function retarget(code: string | null) {
   targetLang.value = code;
   translate();
 }
 
 async function copy() {
-  if (!state.text) return;
-  await commands.copyText(state.text);
+  if (!output.value) return;
+  await commands.copyText(output.value);
   copied.value = true;
   setTimeout(() => (copied.value = false), 1200);
 }
@@ -117,7 +162,7 @@ function onKeydown(e: KeyboardEvent) {
     commands.popupHide();
   } else if (e.key === 'Enter' && e.ctrlKey) {
     e.preventDefault();
-    translate();
+    submit();
   } else if (e.key.toLowerCase() === 'c' && e.ctrlKey && !window.getSelection()?.toString() && !editing.value) {
     e.preventDefault();
     copy();
@@ -139,6 +184,7 @@ onMounted(async () => {
   await events.popupShow.listen((e) => show(e.payload));
   await events.popupHidden.listen(() => {
     reset();
+    checker.reset();
     pinned.value = false;
     stopSpeech();
   });
@@ -153,7 +199,18 @@ onMounted(async () => {
       <ResizeHandles @start="autosize.manual.value = true" />
 
       <header class="flex h-12 shrink-0 items-center gap-2" @mousedown="dragWindow">
-        <div class="flex min-w-0 items-center gap-1.5 pl-1">
+        <div v-if="isCheck" class="flex min-w-0 items-center gap-2 pl-1">
+          <SpellCheck class="pointer-events-none size-[18px] shrink-0 text-accent" />
+          <span class="pointer-events-none truncate text-[15px] font-medium">{{ t('nav.check') }}</span>
+          <Select
+            v-if="llms.length"
+            :model-value="level"
+            :options="levelOptions"
+            size="sm"
+            @update:model-value="relevel"
+          />
+        </div>
+        <div v-else class="flex min-w-0 items-center gap-1.5 pl-1">
           <span class="pointer-events-none truncate text-[15px] text-muted">{{ name(state.sourceLang) || '…' }}</span>
           <ArrowRight class="pointer-events-none size-[18px] shrink-0 text-faint" />
           <LanguagePicker
@@ -214,7 +271,7 @@ onMounted(async () => {
           rows="3"
           spellcheck="false"
           class="w-full resize-none rounded-xl border border-line bg-surface px-4 py-3 text-[16px] outline-none focus:border-line-strong"
-          @keydown.enter.ctrl.prevent="translate"
+          @keydown.enter.ctrl.prevent="submit"
         />
         <button
           v-else-if="source"
@@ -226,7 +283,7 @@ onMounted(async () => {
           @click="expandedSource ? (editing = true) : (expandedSource = true)"
         >{{ source }}</button>
         <SourceWord
-          v-if="!editing && state.kind === 'dictionary' && state.dictionary"
+          v-if="!isCheck && !editing && state.kind === 'dictionary' && state.dictionary"
           :entry="state.dictionary"
           :lang="state.sourceLang"
           owner="dict"
@@ -240,7 +297,32 @@ onMounted(async () => {
         ref="scrollerEl"
         class="mt-2 min-h-0 flex-1 overflow-y-auto rounded-xl border border-line bg-surface px-4 py-3.5"
       >
-        <div ref="contentEl">
+        <div v-if="isCheck" ref="contentEl">
+          <div v-if="!llms.length" class="flex flex-col items-center py-3 text-center">
+            <Sparkles class="size-6 text-accent" />
+            <div class="mt-2 text-[15px] font-semibold">{{ t('check.needsAi') }}</div>
+            <p class="mt-1 max-w-sm text-[13.5px] leading-relaxed text-muted">{{ t('check.needsAiDesc') }}</p>
+            <Button variant="primary" size="sm" class="mt-3" @click="commands.openMain('settings/providers')">
+              {{ t('check.connectAi') }}
+            </Button>
+          </div>
+          <div v-else-if="notice && checker.state.status === 'idle'" class="text-[16px] text-muted">{{ notice }}</div>
+          <div v-else-if="checker.state.status === 'error'" class="selectable text-[15px] text-danger wrap-anywhere">
+            {{ checker.state.error }}
+            <div class="mt-3"><Button size="sm" @click="check">{{ t('common.retry') }}</Button></div>
+          </div>
+          <CheckResultView
+            v-else-if="checker.state.status === 'done' && checker.state.result"
+            v-model:accepted="checker.state.accepted"
+            :result="checker.state.result"
+            show-edits
+          />
+          <div v-else-if="checker.state.status === 'loading'" class="flex items-center justify-center gap-2 py-3 text-accent">
+            <Spinner class="size-7" />
+          </div>
+          <div v-else-if="editing" class="text-[15px] text-faint">Ctrl+Enter — {{ t('check.run') }}</div>
+        </div>
+        <div v-else ref="contentEl">
           <div v-if="notice && state.status === 'idle'" class="text-[16px] text-muted">{{ notice }}</div>
           <div v-else-if="state.status === 'error'" class="selectable text-[15px] text-danger wrap-anywhere">
             {{ state.error }}
@@ -263,7 +345,30 @@ onMounted(async () => {
       <footer class="mt-3 flex shrink-0 items-center gap-2">
         <template v-if="editing">
           <span class="min-w-0 flex-1" />
-          <Button variant="primary" :disabled="!source.trim()" @click="translate">{{ t('popup.translate') }}</Button>
+          <Button variant="primary" :disabled="!source.trim() || (isCheck && !llms.length)" @click="submit">
+            {{ isCheck ? t('check.run') : t('popup.translate') }}
+          </Button>
+        </template>
+        <template v-else-if="isCheck">
+          <Button :disabled="checker.state.status !== 'done'" @click="copy">
+            <Check v-if="copied" class="size-5 text-success" />
+            <Copy v-else class="size-5" />
+            {{ copied ? t('common.copied') : t('common.copy') }}
+          </Button>
+          <Button @click="commands.openCheckInMain(source)">
+            <Maximize2 class="size-5" />
+            {{ t('popup.open') }}
+          </Button>
+          <span class="min-w-0 flex-1" />
+          <Button
+            v-if="payload?.can_replace"
+            variant="primary"
+            :disabled="checker.state.status !== 'done' || !checker.hasEdits.value"
+            @click="commands.replaceWith(checker.finalText.value)"
+          >
+            <Replace class="size-5" />
+            {{ t('popup.replaceShort') }}
+          </Button>
         </template>
         <template v-else>
           <Button :disabled="!state.text" @click="copy">

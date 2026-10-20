@@ -32,6 +32,10 @@ pub struct MainOpenText {
     pub translate: bool,
 }
 
+/// Put text into the check view and proofread it.
+#[derive(Serialize, Deserialize, Type, Clone, Debug, Event)]
+pub struct MainCheckText(pub String);
+
 /// Switch the main window to a view ("translate" | "history" | "settings").
 #[derive(Serialize, Deserialize, Type, Clone, Debug, Event)]
 pub struct MainNavigate(pub String);

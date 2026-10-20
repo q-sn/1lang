@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { onActivated, onMounted, ref, watch } from 'vue';
 import { useDebounceFn } from '@vueuse/core';
-import { ArrowRight, Copy, History as HistoryIcon, Search, Star, Trash2, Upload } from '@lucide/vue';
+import { ArrowRight, Copy, History as HistoryIcon, Search, SpellCheck, Star, Trash2, Upload } from '@lucide/vue';
 import { useI18n } from 'vue-i18n';
 import { commands, events, unwrap, type HistoryItem } from '@/lib/api';
 import { useLanguages } from '@/lib/langs';
+import { openCheck } from '@/lib/nav';
 import Button from '@/ui/Button.vue';
 import Segmented from '@/ui/Segmented.vue';
 import Tip from '@/ui/Tip.vue';
@@ -104,16 +105,28 @@ function when(ms: number | null) {
       >
         <div class="min-w-0">
           <div class="mb-1.5 flex items-center gap-1.5 text-[12.5px] font-medium text-faint">
-            <span>{{ name(it.source_lang) || '—' }}</span>
-            <ArrowRight class="size-3.5" />
-            <span class="text-accent">{{ name(it.target_lang) }}</span>
+            <template v-if="it.check">
+              <SpellCheck class="size-3.5 text-accent" />
+              <span class="text-accent">{{ t('history.check') }}</span>
+              <span v-if="it.source_lang">· {{ name(it.source_lang) }}</span>
+            </template>
+            <template v-else>
+              <span>{{ name(it.source_lang) || '—' }}</span>
+              <ArrowRight class="size-3.5" />
+              <span class="text-accent">{{ name(it.target_lang) }}</span>
+            </template>
             <span class="ml-1 rounded-md bg-hover px-1.5 py-0.5 text-[11.5px]">{{ t(`history.origin.${it.origin}`) }}</span>
             <span v-if="it.app" class="truncate">{{ it.app }}</span>
           </div>
           <p class="selectable line-clamp-3 whitespace-pre-wrap text-[14.5px]">{{ it.source_text }}</p>
         </div>
         <div class="min-w-0">
-          <div class="mb-1.5 text-[12.5px] text-faint">{{ when(it.created_at) }} · {{ it.provider_name }}</div>
+          <div class="mb-1.5 text-[12.5px] text-faint">
+            {{ when(it.created_at) }} · {{ it.provider_name }}
+            <template v-if="it.check?.issues.length">
+              · {{ t('check.errors', it.check.issues.filter((i) => i.severity === 'error').length) }}
+            </template>
+          </div>
           <p class="selectable line-clamp-3 whitespace-pre-wrap text-[14.5px] font-medium">{{ it.result_text }}</p>
         </div>
         <div class="flex items-start gap-0.5">
@@ -121,8 +134,14 @@ function when(ms: number | null) {
             <Tip :text="t('common.copy')">
               <Button variant="ghost" size="icon-sm" @click="commands.copyText(it.result_text)"><Copy class="size-4" /></Button>
             </Tip>
-            <Tip :text="t('history.open')">
-              <Button variant="ghost" size="icon-sm" @click="commands.openInMain(it.source_text)"><Upload class="size-4" /></Button>
+            <Tip :text="it.check ? t('history.openCheck') : t('history.open')">
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                @click="it.check ? openCheck(it.source_text) : commands.openInMain(it.source_text)"
+              >
+                <Upload class="size-4" />
+              </Button>
             </Tip>
             <Tip :text="t('common.delete')">
               <Button variant="ghost" size="icon-sm" @click="remove(it)"><Trash2 class="size-4" /></Button>

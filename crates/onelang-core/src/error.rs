@@ -16,6 +16,9 @@ pub enum Error {
     Unsupported,
     #[error("No enabled providers")]
     NoProviders,
+    /// The mode needs an LLM, and none of the enabled providers is one.
+    #[error("This needs an AI model: enable an LLM provider in settings")]
+    NoLlmProvider,
     #[error("Nothing to translate")]
     EmptyText,
     #[error("Cancelled")]
@@ -32,7 +35,7 @@ impl From<reqwest::Error> for Error {
 impl Error {
     /// Errors after which it makes sense to try the next provider in the chain.
     pub fn is_retryable_with_other_provider(&self) -> bool {
-        !matches!(self, Error::EmptyText | Error::Cancelled)
+        !matches!(self, Error::EmptyText | Error::Cancelled | Error::NoLlmProvider)
     }
 
     pub(crate) async fn from_response(resp: reqwest::Response) -> Error {

@@ -52,6 +52,7 @@ fn payload(text: String, context: Option<String>, origin: Origin, fg: Option<&Fo
         translate: true,
         can_replace: matches!(origin, Origin::Selection),
         notice: None,
+        check: false,
     }
 }
 
@@ -85,6 +86,15 @@ fn read_selection(app: &AppHandle, method: SelectionMethod) -> Option<Selection>
 
 /// Hotkey: translate the selected text in a popup.
 pub fn translate_selection(app: AppHandle) {
+    selection_popup(app, false);
+}
+
+/// Hotkey: proofread the selected text in a popup.
+pub fn check_selection(app: AppHandle) {
+    selection_popup(app, true);
+}
+
+fn selection_popup(app: AppHandle, check: bool) {
     thread::spawn(move || {
         let fg = system::foreground_app();
         if fg.as_ref().is_some_and(is_self) {
@@ -94,15 +104,16 @@ pub fn translate_selection(app: AppHandle) {
         let method = app.state_ref().settings().selection.method;
         let cursor = system::cursor_position();
         match read_selection(&app, method) {
-            Some(sel) => windows::open_popup(
-                &app,
-                payload(sel.text, sel.context, Origin::Selection, fg.as_ref()),
-                Anchoring { bounds: sel.bounds, cursor },
-            ),
+            Some(sel) => {
+                let mut p = payload(sel.text, sel.context, Origin::Selection, fg.as_ref());
+                p.check = check;
+                windows::open_popup(&app, p, Anchoring { bounds: sel.bounds, cursor })
+            }
             None => {
                 let mut p = payload(String::new(), None, Origin::Selection, fg.as_ref());
                 p.translate = false;
                 p.can_replace = false;
+                p.check = check;
                 p.notice = Some("no_selection".into());
                 windows::open_popup(&app, p, Anchoring { bounds: None, cursor });
             }

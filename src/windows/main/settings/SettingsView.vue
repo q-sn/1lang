@@ -10,14 +10,17 @@ import {
   PanelTop,
   ScanText,
   SlidersHorizontal,
+  SpellCheck,
   Volume2,
 } from '@lucide/vue';
 import { useI18n } from 'vue-i18n';
 import { useSettings } from '@/lib/settings';
+import { settingsSection as current } from '@/lib/nav';
 import GeneralSection from './GeneralSection.vue';
 import LanguagesSection from './LanguagesSection.vue';
 import ProvidersSection from './ProvidersSection.vue';
 import TranslationSection from './TranslationSection.vue';
+import CheckSection from './CheckSection.vue';
 import SpeechSection from './SpeechSection.vue';
 import SelectionSection from './SelectionSection.vue';
 import HotkeysSection from './HotkeysSection.vue';
@@ -34,6 +37,7 @@ const sections: { id: string; component: Component; icon: Component }[] = [
   { id: 'languages', icon: Languages, component: LanguagesSection },
   { id: 'providers', icon: Bot, component: ProvidersSection },
   { id: 'translation', icon: MessageSquareText, component: TranslationSection },
+  { id: 'check', icon: SpellCheck, component: CheckSection },
   { id: 'speech', icon: Volume2, component: SpeechSection },
   { id: 'selection', icon: MousePointerClick, component: SelectionSection },
   { id: 'hotkeys', icon: Keyboard, component: HotkeysSection },
@@ -41,7 +45,6 @@ const sections: { id: string; component: Component; icon: Component }[] = [
   { id: 'ocr', icon: ScanText, component: OcrSection },
   { id: 'usage', icon: BarChart3, component: UsageSection },
 ];
-const current = ref('general');
 const navItems = ref<(HTMLElement | null)[]>([]);
 </script>
 

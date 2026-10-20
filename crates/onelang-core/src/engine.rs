@@ -6,7 +6,7 @@ use std::time::Instant;
 
 use crate::detect;
 use crate::lang::normalize;
-use crate::prompt::{Job, Target};
+use crate::prompt::{CheckJob, Job, Target};
 use crate::providers::{Provider, StreamPiece};
 use crate::types::*;
 use crate::{Error, Result};
@@ -62,6 +62,67 @@ impl Engine {
             return Err(Error::NoProviders);
         }
         Ok(chain)
+    }
+
+    /// Proofread a text with the first LLM provider of the chain that answers.
+    pub async fn check(&self, req: CheckRequest) -> Result<CheckResult> {
+        let started = Instant::now();
+        let text = req.text.trim_matches(|c: char| c == '\u{feff}' || c.is_whitespace());
+        if text.is_empty() {
+            return Err(Error::EmptyText);
+        }
+        let chain: Vec<_> = self.chain(req.provider_id.as_deref())?.into_iter().filter(|p| p.is_llm()).collect();
+        if chain.is_empty() {
+            return Err(Error::NoLlmProvider);
+        }
+        let explain_lang = req
+            .explain_lang
+            .as_deref()
+            .map(normalize)
+            .filter(|l| l != "auto")
+            .unwrap_or_else(|| normalize(&self.options.pair.primary));
+        let job = CheckJob {
+            text: text.to_string(),
+            level: req.level,
+            explain_lang: explain_lang.clone(),
+            context: req.context.clone(),
+        };
+
+        let mut last_err = Error::NoLlmProvider;
+        for provider in chain {
+            let cfg = provider.config().clone();
+            match provider.check(&job).await {
+                Ok(out) => {
+                    let segments = crate::diff::segments(text, &out.corrected);
+                    let mut issues = out.issues;
+                    crate::diff::link_issues(&mut issues, &segments, text, &out.corrected);
+                    return Ok(CheckResult {
+                        text: text.to_string(),
+                        corrected: out.corrected,
+                        lang: out.lang,
+                        explain_lang,
+                        level: req.level,
+                        segments,
+                        issues,
+                        provider_id: cfg.id.clone(),
+                        provider_name: cfg.name.clone(),
+                        model: cfg.model(),
+                        cost_usd: cfg.cost(&out.usage),
+                        usage: out.usage,
+                        cached: false,
+                        elapsed_ms: started.elapsed().as_millis() as u32,
+                    });
+                }
+                Err(e) => {
+                    log::warn!("provider {} failed to check: {e}", cfg.name);
+                    if !e.is_retryable_with_other_provider() {
+                        return Err(e);
+                    }
+                    last_err = e;
+                }
+            }
+        }
+        Err(last_err)
     }
 
     pub async fn translate(&self, req: TranslateRequest, emit: Emit<'_>) -> Result<TranslationResult> {
@@ -277,6 +338,18 @@ mod tests {
         assert_eq!(res.provider_id, "b");
         assert_eq!(res.target_lang, "en");
         assert_eq!(b.seen.lock().unwrap()[0], Target::Fixed("en".into()));
+    }
+
+    #[tokio::test]
+    async fn check_needs_an_llm() {
+        let mt = Arc::new(Echo {
+            cfg: ProviderConfig::new("g", ProviderKind::GoogleFree),
+            fail: false,
+            seen: Mutex::new(vec![]),
+        });
+        let engine = Engine::new(vec![mt], opts());
+        let err = engine.check(CheckRequest { text: "I has a cat.".into(), ..Default::default() }).await.unwrap_err();
+        assert!(matches!(err, Error::NoLlmProvider));
     }
 
     #[test]

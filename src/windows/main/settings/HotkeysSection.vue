@@ -7,7 +7,14 @@ import HotkeyInput from '@/ui/HotkeyInput.vue';
 
 const { t } = useI18n();
 const { settings } = useSettings();
-const keys = ['translate_selection', 'replace_selection', 'ocr_region', 'translate_clipboard', 'open_main'] as const;
+const keys = [
+  'translate_selection',
+  'replace_selection',
+  'check_selection',
+  'ocr_region',
+  'translate_clipboard',
+  'open_main',
+] as const;
 </script>
 
 <template>

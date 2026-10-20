@@ -14,6 +14,15 @@ export const i18n = createI18n({
   messages: { en, ru, es },
   // Messages contain JSON examples with braces; they are escaped where needed.
   warnHtmlMessage: false,
+  pluralRules: {
+    // 1 ошибка, 2 ошибки, 5 ошибок
+    ru: (n: number) => {
+      const tens = n % 100;
+      if (tens > 10 && tens < 20) return 2;
+      const ones = n % 10;
+      return ones === 1 ? 0 : ones >= 2 && ones <= 4 ? 1 : 2;
+    },
+  },
 });
 
 type UiLanguage = (typeof UI_LANGUAGES)[number];
