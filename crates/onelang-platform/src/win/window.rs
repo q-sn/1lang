@@ -65,6 +65,31 @@ pub fn force_foreground(raw: isize) {
     }
 }
 
+/// Wait until `raw` is the foreground window and its thread has a focused
+/// control, so synthetic keys are not lost while it is still activating.
+pub fn wait_focused(raw: isize, timeout: std::time::Duration) -> bool {
+    use windows::Win32::UI::WindowsAndMessaging::{
+        GetForegroundWindow, GetGUIThreadInfo, GetWindowThreadProcessId, GUITHREADINFO,
+    };
+    let target = hwnd(raw);
+    let deadline = std::time::Instant::now() + timeout;
+    loop {
+        unsafe {
+            if GetForegroundWindow() == target {
+                let thread = GetWindowThreadProcessId(target, None);
+                let mut gi = GUITHREADINFO { cbSize: std::mem::size_of::<GUITHREADINFO>() as u32, ..Default::default() };
+                if GetGUIThreadInfo(thread, &mut gi).is_ok() && !gi.hwndFocus.is_invalid() {
+                    return true;
+                }
+            }
+        }
+        if std::time::Instant::now() > deadline {
+            return false;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+}
+
 /// Show a window without activating it (keeps focus and selection in the current app).
 pub fn show_no_activate(raw: isize) {
     use windows::Win32::UI::WindowsAndMessaging::{ShowWindow, SW_SHOWNOACTIVATE};

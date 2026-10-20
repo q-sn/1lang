@@ -477,12 +477,21 @@ pub fn open_check_in_main(app: AppHandle, text: String) {
 #[specta::specta]
 pub fn replace_with(app: AppHandle, text: String) -> Result<(), String> {
     let hwnd = app.state_ref().popup.lock().unwrap().source_hwnd;
+    // Activate the source app before hiding the popup, otherwise Windows
+    // activates the next window in z-order (e.g. our main window) first.
+    if hwnd != 0 {
+        onelang_platform::window::force_foreground(hwnd);
+    }
     windows::hide_popup(&app);
     thread::spawn(move || {
         if hwnd != 0 {
             onelang_platform::window::force_foreground(hwnd);
+            if !onelang_platform::window::wait_focused(hwnd, Duration::from_millis(1000)) {
+                log::warn!("replace: source window did not get focus");
+            }
         }
-        thread::sleep(Duration::from_millis(120));
+        // XAML / Chromium apps move focus to their text box a bit after activation.
+        thread::sleep(Duration::from_millis(150));
         app.state_ref()
             .suppress_clipboard_until
             .store(crate::db::now_ms() + 2000, std::sync::atomic::Ordering::Relaxed);
